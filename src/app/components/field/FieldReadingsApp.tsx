@@ -1,54 +1,58 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useLayoutEffect } from 'react';
 import LoginPage from './LoginPage';
 import ReadingsPage from './ReadingsPage';
 
-/**
- * FieldReadingsApp
- * 
- * Main app controller
- * - Manages login state
- * - Handles localStorage
- * - Routes between Login / Readings pages
- */
+interface AuthState {
+  isLoggedIn: boolean;
+  fieldUserId: string;
+  fieldUsername: string;
+}
+
+// Custom hook to safely read localStorage without triggering warnings
+function useLocalStorage(key: string, defaultValue: string): string {
+  const [value, setValue] = useState(defaultValue);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      setValue(stored);
+    }
+  }, [key]);
+
+  return value;
+}
+
 export default function FieldReadingsApp() {
-  // Initialize state from localStorage directly
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return !!localStorage.getItem('fieldUserId');
-    }
-    return false;
-  });
+  const [isMounted, setIsMounted] = useState(false);
+  const fieldUserId = useLocalStorage('fieldUserId', '');
+  const fieldUsername = useLocalStorage('fieldUsername', '');
 
-  const [fieldUserId, setFieldUserId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('fieldUserId') || '';
-    }
-    return '';
-  });
+  useLayoutEffect(() => {// eslint-disable-next-line react-hooks/exhaustive-deps
+    setIsMounted(true);
+  }, []);
 
-  const [fieldUsername, setFieldUsername] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('fieldUsername') || '';
-    }
-    return '';
-  });
+  // Don't render anything until mounted on client
+  if (!isMounted) {
+    return null;
+  }
+
+  const isLoggedIn = !!(fieldUserId && fieldUsername);
 
   const handleLoginSuccess = (id: string, username: string) => {
     localStorage.setItem('fieldUserId', id);
     localStorage.setItem('fieldUsername', username);
-    setFieldUserId(id);
-    setFieldUsername(username);
-    setIsLoggedIn(true);
+    // Force page reload to update state
+    window.location.reload();
   };
 
   const handleLogout = () => {
     localStorage.removeItem('fieldUserId');
     localStorage.removeItem('fieldUsername');
-    setFieldUserId('');
-    setFieldUsername('');
-    setIsLoggedIn(false);
+    // Force page reload to update state
+    window.location.reload();
   };
 
   return isLoggedIn ? (

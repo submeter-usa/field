@@ -2,7 +2,7 @@
 // Bulk save meter readings from field employees
 // src/app/api/field/readings/route.ts
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import db from '@/db/drizzle-postgres';
 import { currentReadings } from '@/db/schema/index';
 
@@ -57,29 +57,24 @@ export async function POST(request: Request) {
           throw new Error(`Reading value is required for meter ${meterId}`);
         }
 
-        // Check if reading already exists for this meter on this date
+        // Check if meter reading exists (meterId is unique)
         const existing = await tx
           .select()
           .from(currentReadings)
-          .where(
-            and(
-              eq(currentReadings.meterId, meterId),
-              eq(currentReadings.readingDate, readingDate)
-            )
-          )
+          .where(eq(currentReadings.meterId, meterId))
           .limit(1);
 
         let result;
 
         if (existing.length > 0) {
-          // Update existing reading
+          // Update existing reading for this meter
           const [updated] = await tx
             .update(currentReadings)
             .set({
               readings: readingValue,
+              readingDate: readingDate,
               inputType: 'Manual',
               amrId: amrId || existing[0].amrId,
-              updatedAt: new Date(),
             })
             .where(eq(currentReadings.id, existing[0].id))
             .returning();
@@ -95,7 +90,6 @@ export async function POST(request: Request) {
               readings: readingValue,
               readingDate,
               inputType: 'Manual',
-              createdAt: new Date(),
             })
             .returning();
 
@@ -132,8 +126,9 @@ export async function POST(request: Request) {
     );
   } catch (error: unknown) {
     console.error('Error saving readings:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return Response.json(
-      { message: error.message || 'Failed to save readings' },
+      { message: `Failed to save readings: ${message}` },
       { status: 500 }
     );
   }

@@ -1,21 +1,25 @@
 'use client';
 
 import React, { useState } from 'react';
-import axios from 'axios';
-import { loginStyles as styles } from './styles';
+import axios, { AxiosError } from 'axios';
+import {
+  Box,
+  Card,
+  Stack,
+  Alert,
+  TextField,
+  Typography,
+} from '@mui/material';
+import { LoadingButton } from '@mui/lab';
 
 interface LoginPageProps {
   onLoginSuccess: (id: string, username: string) => void;
 }
 
-/**
- * LoginPage
- * 
- * Handles:
- * - Username/password input
- * - /api/field/auth/login call
- * - Error display
- */
+interface ErrorResponse {
+  message: string;
+}
+
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -38,59 +42,80 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         onLoginSuccess(id, username);
       }
     } catch (err: unknown) {
-      setError(err.response?.data?.message || 'Login failed. Check credentials.');
+      const axiosError = err as AxiosError<ErrorResponse>;
+      const message = axiosError.response?.data?.message || 'Login failed. Check credentials.';
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={styles.loginContainer}>
-      <div style={styles.loginBox}>
-        <h1 style={styles.loginTitle}>Field Readings</h1>
-        <p style={styles.loginSubtitle}>Employee Portal</p>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: 'background.default',
+        px: 2,
+      }}
+    >
+      <Card sx={{ p: 4, maxWidth: 400, width: '100%' }}>
+        <Stack spacing={3}>
+          <Box>
+            <Typography variant="h4" fontWeight={600} gutterBottom>
+              Field Readings
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Employee Portal
+            </Typography>
+          </Box>
 
-        <form onSubmit={handleLogin} style={styles.loginForm}>
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Login</label>
-            <input
-              type="text"
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
-              placeholder="Enter username"
-              style={styles.input}
-              required
-              disabled={loading}
-            />
-          </div>
+          <form onSubmit={handleLogin}>
+            <Stack spacing={2.5}>
+              <TextField
+                fullWidth
+                label="Login"
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                placeholder="Enter username"
+                required
+                disabled={loading}
+                autoComplete="username"
+              />
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
-              style={styles.input}
-              required
-              disabled={loading}
-            />
-          </div>
+              <TextField
+                fullWidth
+                type="password"
+                label="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                required
+                disabled={loading}
+                autoComplete="current-password"
+              />
 
-          {error && <div style={styles.error}>{error}</div>}
+              {error && (
+                <Alert severity="error" onClose={() => setError('')}>
+                  {error}
+                </Alert>
+              )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              ...styles.submitButton,
-              opacity: loading ? 0.6 : 1,
-            }}
-          >
-            {loading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
-      </div>
-    </div>
+              <LoadingButton
+                fullWidth
+                size="large"
+                type="submit"
+                variant="contained"
+                loading={loading}
+              >
+                Login
+              </LoadingButton>
+            </Stack>
+          </form>
+        </Stack>
+      </Card>
+    </Box>
   );
 }

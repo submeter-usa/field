@@ -1,8 +1,28 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { readingsStyles as styles } from './styles';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import {
+  Box,
+  Card,
+  Stack,
+  Alert,
+  Button,
+  TextField,
+  Typography,
+  Autocomplete,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Checkbox,
+  CircularProgress,
+} from "@mui/material";
+import { LoadingButton } from "@mui/lab";
+import parse from "autosuggest-highlight/parse";
+import match from "autosuggest-highlight/match";
 
 interface ReadingsPageProps {
   fieldUserId: string;
@@ -13,7 +33,7 @@ interface ReadingsPageProps {
 interface Meter {
   unitId: string;
   meterId: string;
-  amrId: string;
+  amrId: string | null;
   meterType: string;
   currentReading?: string;
   lastReadingDate?: string;
@@ -24,43 +44,54 @@ interface Community {
   name: string;
 }
 
-/**
- * ReadingsPage
- * 
- * Simple field readings interface:
- * - Community autocomplete (search)
- * - Meters table with: Select | Select All | Meter Type | AMR ID | Unit ID | Current Reading
- * - Bulk save readings
- * 
- * No admin complexity - just data entry
- */
+interface ApiResponse {
+  data?: Meter[];
+  message?: string;
+}
+
+interface AxiosErrorResponse {
+  response?: {
+    data?: {
+      message?: string;
+    };
+  };
+}
+
 export default function ReadingsPage({
   fieldUserId,
   fieldUsername,
   onLogout,
 }: ReadingsPageProps) {
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [selectedCommunity, setSelectedCommunity] = useState('');
+  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(
+    null,
+  );
+  const [communityInputValue, setCommunityInputValue] = useState("");
   const [meters, setMeters] = useState<Meter[]>([]);
   const [readings, setReadings] = useState<Record<string, string>>({});
   const [selectedMeters, setSelectedMeters] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
-  const [messageType, setMessageType] = useState<'success' | 'error'>('success');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error">(
+    "success",
+  );
 
   // Fetch communities on mount
   useEffect(() => {
     const fetchCommunities = async () => {
       try {
-        const response = await axios.get('/api/field/communities');
-        setCommunities(response.data);
+        const response = await axios.get<Community[]>("/api/field/communities");
+        setCommunities(
+          response.data.map((c) => ({
+            id: c.id,
+            name: c.name,
+          })),
+        );
       } catch (err) {
-        console.error('Error fetching communities:', err);
-        setMessage('Failed to load communities');
-        setMessageType('error');
+        console.error("Error fetching communities:", err);
+        setMessage("Failed to load communities");
+        setMessageType("error");
       }
     };
     fetchCommunities();
@@ -76,17 +107,17 @@ export default function ReadingsPage({
     const fetchMeters = async () => {
       setLoading(true);
       try {
-        const response = await axios.get('/api/field/meters', {
-          params: { communityId: selectedCommunity },
+        const response = await axios.get<ApiResponse>("/api/field/meters", {
+          params: { communityId: selectedCommunity.id },
         });
         setMeters(response.data.data || []);
         setReadings({});
         setSelectedMeters(new Set());
-        setMessage('');
+        setMessage("");
       } catch (err) {
-        console.error('Error fetching meters:', err);
-        setMessage('Failed to load meters');
-        setMessageType('error');
+        console.error("Error fetching meters:", err);
+        setMessage("Failed to load meters");
+        setMessageType("error");
       } finally {
         setLoading(false);
       }
@@ -125,265 +156,354 @@ export default function ReadingsPage({
     const metersToSave = meters.filter((m) => selectedMeters.has(m.meterId));
 
     if (metersToSave.length === 0) {
-      setMessage('Please select at least one meter');
-      setMessageType('error');
+      setMessage("Please select at least one meter");
+      setMessageType("error");
       return;
     }
 
-    const metersWithoutReadings = metersToSave.filter((m) => !readings[m.meterId]);
+    const metersWithoutReadings = metersToSave.filter(
+      (m) => !readings[m.meterId],
+    );
     if (metersWithoutReadings.length > 0) {
-      setMessage('Please enter readings for all selected meters');
-      setMessageType('error');
+      setMessage("Please enter readings for all selected meters");
+      setMessageType("error");
       return;
     }
 
     setSaving(true);
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
 
     try {
-      // Bulk save: one API call with all readings
       const readingsPayload = metersToSave.map((meter) => ({
         meterId: meter.meterId,
-        amrId: meter.amrId,
+        amrId: meter.amrId || "", // Use empty string if amrId is null/undefined
         reading: readings[meter.meterId],
       }));
 
-      await axios.post('/api/field/readings', {
+      await axios.post("/api/field/readings", {
         fieldUserId,
-        communityId: selectedCommunity,
+        communityId: selectedCommunity?.id,
         readingDate: today,
         readings: readingsPayload,
       });
 
       setMessage(`✓ Successfully saved ${metersToSave.length} reading(s)`);
-      setMessageType('success');
+      setMessageType("success");
       setReadings({});
       setSelectedMeters(new Set());
 
-      // Refresh meters to show updated readings
+      // Refresh meters
       setTimeout(() => {
         const fetchMeters = async () => {
           try {
-            const response = await axios.get('/api/field/meters', {
-              params: { communityId: selectedCommunity },
+            const response = await axios.get<ApiResponse>("/api/field/meters", {
+              params: { communityId: selectedCommunity?.id },
             });
             setMeters(response.data.data || []);
           } catch (err) {
-            console.error('Error refreshing meters:', err);
+            console.error("Error refreshing meters:", err);
           }
         };
         fetchMeters();
       }, 500);
     } catch (err: unknown) {
-      setMessage(`Error: ${err.response?.data?.message || 'Failed to save readings'}`);
-      setMessageType('error');
+      const axiosError = err as AxiosErrorResponse;
+      const errorMessage =
+        axiosError.response?.data?.message || "Failed to save readings";
+      setMessage(`Error: ${errorMessage}`);
+      setMessageType("error");
     } finally {
       setSaving(false);
     }
   };
 
-  const filteredCommunities = communities.filter((c) =>
-    c.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
-    <div style={styles.pageContainer}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 3 }}>
       {/* Header */}
-      <div style={styles.header}>
-        <div>
-          <h1 style={styles.pageTitle}>Readings</h1>
-          <p style={styles.userName}>
-            Logged in as: <strong>{fieldUsername}</strong>
-          </p>
-        </div>
-        <button onClick={onLogout} style={styles.logoutButton}>
-          Logout
-        </button>
-      </div>
+      <Box
+        sx={{
+          bgcolor: "background.paper",
+          borderBottom: 1,
+          borderColor: "divider",
+          px: 2,
+          py: 2,
+        }}
+      >
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="flex-start"
+        >
+          <Box>
+            <Typography variant="h5" fontWeight={600}>
+              Readings
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Logged in as: <strong>{fieldUsername}</strong>
+            </Typography>
+          </Box>
+          <Button
+            onClick={onLogout}
+            variant="outlined"
+            size="small"
+            sx={{ minWidth: 80 }}
+          >
+            Logout
+          </Button>
+        </Stack>
+      </Box>
 
-      <div style={styles.content}>
+      {/* Content */}
+      <Box sx={{ px: 2, pt: 3, maxWidth: 1200, mx: "auto" }}>
         {/* Community Selection */}
-        <div style={styles.section}>
-          <label style={styles.sectionLabel}>Select Community</label>
-          <div style={styles.autocompleteContainer}>
-            <input
-              type="text"
-              placeholder="Search community..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setShowDropdown(true);
-              }}
-              onFocus={() => setShowDropdown(true)}
-              style={styles.searchInput}
-              autoComplete="off"
-            />
-            {showDropdown && searchTerm && filteredCommunities.length > 0 && (
-              <div style={styles.dropdown}>
-                {filteredCommunities.map((c) => (
-                  <div
-                    key={c.id}
-                    style={{
-                      ...styles.dropdownItem,
-                      backgroundColor: selectedCommunity === c.id ? '#f0f0f0' : 'white',
-                    }}
-                    onClick={() => {
-                      setSelectedCommunity(c.id);
-                      setSearchTerm('');
-                      setShowDropdown(false);
-                    }}
-                    role="option"
-                    aria-selected={selectedCommunity === c.id}
-                  >
-                    {c.name}
+        <Card sx={{ p: 2.5, mb: 2 }}>
+          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>
+            Select Community
+          </Typography>
+          <Autocomplete
+            fullWidth
+            options={communities}
+            getOptionLabel={(option) => option.name}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            value={selectedCommunity}
+            onChange={(event, newValue) => {
+              setSelectedCommunity(newValue);
+            }}
+            inputValue={communityInputValue}
+            onInputChange={(event, newInputValue) => {
+              setCommunityInputValue(newInputValue);
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder="Search community..."
+                size="small"
+              />
+            )}
+            renderOption={(props, option, { inputValue }) => {
+              const matches = match(option.name, inputValue, {
+                insideWords: true,
+              });
+              const parts = parse(option.name, matches);
+              return (
+                <li {...props} key={option.id}>
+                  <div>
+                    {parts.map((part, index) => (
+                      <span
+                        key={index}
+                        style={{
+                          fontWeight: part.highlight ? 700 : 400,
+                        }}
+                      >
+                        {part.text}
+                      </span>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-            {selectedCommunity && (
-              <div style={styles.selectedCommunity}>
-                ✓ {communities.find((c) => c.id === selectedCommunity)?.name}
-              </div>
-            )}
-          </div>
-        </div>
+                </li>
+              );
+            }}
+          />
+        </Card>
 
         {/* Message Display */}
         {message && (
-          <div
-            style={{
-              ...styles.message,
-              backgroundColor: messageType === 'success' ? '#d4edda' : '#f8d7da',
-              color: messageType === 'success' ? '#155724' : '#721c24',
-            }}
-            role="alert"
+          <Alert
+            severity={messageType}
+            onClose={() => setMessage("")}
+            sx={{ mb: 2 }}
           >
             {message}
-          </div>
+          </Alert>
         )}
 
         {/* Meters Table */}
         {selectedCommunity && (
-          <div style={styles.section}>
+          <Card sx={{ p: 0 }}>
             {loading ? (
-              <div style={styles.loading}>Loading meters...</div>
+              <Box sx={{ p: 5, textAlign: "center" }}>
+                <CircularProgress size={40} />
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 2 }}
+                >
+                  Loading meters...
+                </Typography>
+              </Box>
             ) : meters.length > 0 ? (
               <>
-                {/* Table Header with Select All */}
-                <div style={styles.tableHeader}>
-                  <div style={styles.tableHeaderContent}>
-                    <button
-                      onClick={handleSelectAll}
-                      style={styles.selectAllBtn}
-                      title={
-                        selectedMeters.size === meters.length
-                          ? 'Deselect All'
-                          : 'Select All'
+                {/* Table Header */}
+                <Box
+                  sx={{
+                    pl: 1,
+                    pr: 2.5,
+                    py: 2,
+                    borderBottom: 1,
+                    borderColor: "divider",
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Checkbox
+                      checked={
+                        selectedMeters.size === meters.length &&
+                        meters.length > 0
                       }
-                      aria-label={
-                        selectedMeters.size === meters.length
-                          ? 'Deselect all meters'
-                          : 'Select all meters'
+                      indeterminate={
+                        selectedMeters.size > 0 &&
+                        selectedMeters.size < meters.length
                       }
-                    >
-                      {selectedMeters.size === meters.length ? '☑' : '☐'}
-                    </button>
-                    <span style={styles.tableTitle}>
-                      {meters.length} Meter{meters.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                </div>
+                      onChange={handleSelectAll}
+                    />
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      {meters.length} Meter{meters.length !== 1 ? "s" : ""}
+                    </Typography>
+                  </Stack>
+                </Box>
 
-                {/* Meters Table */}
-                <div style={styles.tableContainer}>
-                  <table style={styles.table} role="grid">
-                    <thead>
-                      <tr style={styles.tableHeadRow} role="row">
-                        <th style={styles.thCheckbox} role="columnheader">Select</th>
-                        <th style={styles.th} role="columnheader">Meter Type</th>
-                        <th style={styles.th} role="columnheader">AMR ID</th>
-                        <th style={styles.th} role="columnheader">Unit ID</th>
-                        <th style={styles.th} role="columnheader">Current Reading</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {meters.map((meter) => (
-                        <tr
-                          key={meter.meterId}
-                          style={{
-                            ...styles.tableRow,
-                            backgroundColor: selectedMeters.has(meter.meterId)
-                              ? '#f9f9f9'
-                              : 'white',
-                          }}
-                          role="row"
+                {/* Table */}
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell
+                          padding="checkbox"
+                          sx={{ bgcolor: "background.neutral" }}
                         >
-                          <td style={styles.tdCheckbox} role="gridcell">
-                            <input
-                              type="checkbox"
+                          Select
+                        </TableCell>
+                        <TableCell
+                          sx={{
+                            bgcolor: "background.neutral",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Type
+                        </TableCell>
+                        <TableCell
+                          sx={{
+                            bgcolor: "background.neutral",
+                            fontWeight: 600,
+                          }}
+                        >
+                          AMR ID
+                        </TableCell>
+                        <TableCell
+                          sx={{
+                            bgcolor: "background.neutral",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Unit ID
+                        </TableCell>
+                        <TableCell
+                          sx={{
+                            bgcolor: "background.neutral",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Reading
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {meters.map((meter) => (
+                        <TableRow
+                          key={meter.meterId}
+                          sx={{
+                            bgcolor: selectedMeters.has(meter.meterId)
+                              ? "action.selected"
+                              : "transparent",
+                          }}
+                        >
+                          <TableCell padding="checkbox">
+                            <Checkbox
                               checked={selectedMeters.has(meter.meterId)}
                               onChange={() => handleSelectMeter(meter.meterId)}
-                              style={styles.checkbox}
-                              aria-label={`Select meter ${meter.meterId}`}
                             />
-                          </td>
-                          <td style={styles.td} role="gridcell">
-                            {meter.meterType || 'N/A'}
-                          </td>
-                          <td style={styles.td} role="gridcell">
-                            {meter.amrId || 'N/A'}
-                          </td>
-                          <td style={styles.td} role="gridcell">
-                            {meter.unitId}
-                          </td>
-                          <td style={styles.td} role="gridcell">
-                            <input
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {meter.meterType || "N/A"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {meter.amrId || "N/A"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={500}>
+                              {meter.unitId}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ pl: 0.5 }}>
+                            <TextField
                               type="number"
-                              placeholder="Enter reading"
-                              value={readings[meter.meterId] || ''}
+                              size="small"
+                              placeholder="Enter"
+                              value={readings[meter.meterId] || ""}
                               onChange={(e) =>
-                                handleReadingChange(meter.meterId, e.target.value)
+                                handleReadingChange(
+                                  meter.meterId,
+                                  e.target.value,
+                                )
                               }
-                              style={styles.readingInput}
-                              step="0.01"
-                              min="0"
+                              inputProps={{
+                                step: "0.01",
+                                min: "0",
+                              }}
                               disabled={!selectedMeters.has(meter.meterId)}
-                              aria-label={`Reading for meter ${meter.meterId}`}
+                              fullWidth
+                              sx={{ maxWidth: 120 }}
                             />
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
 
-                {/* Save Button (shown when meters selected) */}
+                {/* Action Bar */}
                 {selectedMeters.size > 0 && (
-                  <div style={styles.actionBar}>
-                    <span style={styles.actionBarText}>
-                      {selectedMeters.size} selected
-                    </span>
-                    <button
-                      onClick={handleSave}
-                      disabled={saving}
-                      style={{
-                        ...styles.saveButton,
-                        opacity: saving ? 0.6 : 1,
-                        cursor: saving ? 'not-allowed' : 'pointer',
-                      }}
-                      aria-busy={saving}
+                  <Box
+                    sx={{
+                      px: 2.5,
+                      py: 2,
+                      borderTop: 1,
+                      borderColor: "divider",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      fontWeight={500}
                     >
-                      {saving ? 'Saving...' : `Save (${selectedMeters.size})`}
-                    </button>
-                  </div>
+                      {selectedMeters.size} selected
+                    </Typography>
+                    <LoadingButton
+                      onClick={handleSave}
+                      loading={saving}
+                      variant="contained"
+                      size="medium"
+                    >
+                      Save ({selectedMeters.size})
+                    </LoadingButton>
+                  </Box>
                 )}
               </>
             ) : (
-              <div style={styles.noData}>No meters found for this community</div>
+              <Box sx={{ p: 5, textAlign: "center" }}>
+                <Typography variant="body2" color="text.secondary">
+                  No meters found for this community
+                </Typography>
+              </Box>
             )}
-          </div>
+          </Card>
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }

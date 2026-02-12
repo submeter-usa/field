@@ -47,7 +47,24 @@ export const currentReadings = pgTable('current_readings', {
 
   inputType: varchar('input_type', { length: 20 }),
 
-  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const meters = pgTable('meters', {
+  id: serial('id').primaryKey(),
+
+  meterId: varchar('meter_id', { length: 100 }).notNull().unique(),
+
+  amrId: varchar('amr_id', { length: 100 }),
+
+  meterType: varchar('meter_type', { length: 50 }).notNull(),
+
+  communityId: integer('community_id').notNull(),
+
+  unitId: integer('unit_id'),
+
+  isActive: boolean('is_active').default(true),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 
   updatedAt: timestamp('updated_at'),
 });

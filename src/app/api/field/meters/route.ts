@@ -2,26 +2,10 @@
 // Fetch meters for a specific community with latest readings
 // src/app/api/field/meters/route.ts
 
-import { eq, and, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import db from '@/db/drizzle-postgres';
-import { communityUnits, currentReadings } from '@/db/schema/index';
 
 export const revalidate = 0;
-
-interface MeterData {
-  unitId: string;
-  meterId: string;
-  amrId: string;
-  meterType: string;
-  currentReading?: string;
-  lastReadingDate?: string;
-}
-
-interface MeterJsonData {
-  meter_id: string;
-  amr_id: string;
-  meter_type: string;
-}
 
 export async function GET(request: Request) {
   try {
@@ -35,51 +19,30 @@ export async function GET(request: Request) {
       );
     }
 
-    // Expanded meters CTE - extracts all meters from JSONB array
-    const expandedMeters = db.$with('expanded_meters').as(
-      db
-        .select({
-          unitId: communityUnits.id,
-          unitNumber: communityUnits.unitNumber,
-          meterData: sql<MeterJsonData>`jsonb_array_elements(
-            CASE 
-              WHEN jsonb_typeof(${communityUnits.meters}) = 'array' THEN ${communityUnits.meters} 
-              ELSE '[]'::jsonb 
-            END
-          )`.as('meter_data'),
-        })
-        .from(communityUnits)
-        .where(
-          and(
-            eq(communityUnits.communityId, communityId),
-            eq(communityUnits.isDeleted, false)
-          )
+    const metersList = await db.execute(
+      sql`
+        WITH expanded_meters AS (
+          SELECT 
+            cu."unit_number",
+            jsonb_array_elements(cu."meters")->>'meter_id' AS meter_id,
+            jsonb_array_elements(cu."meters")->>'meter_type' AS meter_type
+          FROM "community_units" cu
+          WHERE cu."community_id" = ${parseInt(communityId, 10)} 
+            AND cu."is_deleted" = false
         )
+        SELECT DISTINCT ON (em.meter_id)
+          em."unit_number" AS "unitId",
+          em.meter_id AS "meterId",
+          COALESCE(m."amr_id", '') AS "amrId",
+          em.meter_type AS "meterType",
+          cr."readings" AS "currentReading",
+          cr."reading_date" AS "lastReadingDate"
+        FROM expanded_meters em
+        LEFT JOIN "meters" m ON m."meter_id" = em.meter_id
+        LEFT JOIN "current_readings" cr ON cr."meter_id" = em.meter_id
+        ORDER BY em.meter_id, cr."reading_date" DESC NULLS LAST
+      `
     );
-
-    // Query with latest readings per meter using DISTINCT ON
-    const metersList = await db
-      .with(expandedMeters)
-      .selectDistinctOn(
-        [sql`${expandedMeters.meterData}->>'meter_id'`],
-        {
-          unitId: expandedMeters.unitNumber,
-          meterId: sql<string>`${expandedMeters.meterData}->>'meter_id'`,
-          amrId: sql<string>`${expandedMeters.meterData}->>'amr_id'`,
-          meterType: sql<string>`${expandedMeters.meterData}->>'meter_type'`,
-          currentReading: currentReadings.readings,
-          lastReadingDate: currentReadings.readingDate,
-        }
-      )
-      .from(expandedMeters)
-      .leftJoin(
-        currentReadings,
-        eq(sql`${expandedMeters.meterData}->>'meter_id'`, currentReadings.meterId)
-      )
-      .orderBy(
-        sql`${expandedMeters.meterData}->>'meter_id'`,
-        sql`${currentReadings.readingDate} DESC NULLS LAST`
-      );
 
     return Response.json(
       {
