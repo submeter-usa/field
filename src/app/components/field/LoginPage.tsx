@@ -65,7 +65,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         <Stack spacing={3}>
           <Box>
             <Typography variant="h4" fontWeight={600} gutterBottom>
-              Field Readings
+              Field Portal
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Employee Portal

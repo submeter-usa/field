@@ -11,16 +11,16 @@ import {
   TextField,
   Typography,
   Autocomplete,
+  IconButton,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Checkbox,
-  CircularProgress,
 } from "@mui/material";
 import { LoadingButton } from "@mui/lab";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import parse from "autosuggest-highlight/parse";
 import match from "autosuggest-highlight/match";
 
@@ -76,6 +76,9 @@ export default function ReadingsPage({
   const [messageType, setMessageType] = useState<"success" | "error">(
     "success",
   );
+  const [draggedMeter, setDraggedMeter] = useState<string | null>(null);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const [draggedElement, setDraggedElement] = useState<HTMLElement | null>(null);
 
   // Fetch communities on mount
   useEffect(() => {
@@ -132,7 +135,120 @@ export default function ReadingsPage({
     }));
   };
 
-  const handleSelectMeter = (meterId: string) => {
+  // Desktop drag handlers
+  const handleDragStart = (meterId: string) => {
+    setDraggedMeter(meterId);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (targetMeterId: string) => {
+    if (!draggedMeter || draggedMeter === targetMeterId) {
+      setDraggedMeter(null);
+      return;
+    }
+
+    reorderMeters(draggedMeter, targetMeterId);
+    setDraggedMeter(null);
+  };
+
+  // Touch handlers for mobile
+  const handleTouchStart = (e: React.TouchEvent, meterId: string) => {
+    const target = e.currentTarget as HTMLElement;
+    const touch = e.touches[0];
+    
+    setDraggedMeter(meterId);
+    setTouchStartY(touch.clientY);
+    setDraggedElement(target);
+    
+    // Add visual feedback
+    target.style.opacity = "0.5";
+    target.style.backgroundColor = "#e3f2fd";
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!draggedMeter || !touchStartY) return;
+    
+    e.preventDefault(); // Prevent scrolling while dragging
+    
+    const touch = e.touches[0];
+    const currentY = touch.clientY;
+    
+    // Calculate which row we're over
+    const elements = document.querySelectorAll('[data-meter-row]');
+    let targetMeterId: string | null = null;
+    
+    elements.forEach((element) => {
+      const rect = element.getBoundingClientRect();
+      if (currentY >= rect.top && currentY <= rect.bottom) {
+        targetMeterId = element.getAttribute('data-meter-id');
+      }
+    });
+    
+    // Visual feedback for potential drop target
+    elements.forEach((element) => {
+      const elementMeterId = element.getAttribute('data-meter-id');
+      if (elementMeterId === targetMeterId && elementMeterId !== draggedMeter) {
+        (element as HTMLElement).style.backgroundColor = "#bbdefb";
+      } else if (elementMeterId !== draggedMeter) {
+        (element as HTMLElement).style.backgroundColor = "";
+      }
+    });
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!draggedMeter || !touchStartY) return;
+    
+    const touch = e.changedTouches[0];
+    const currentY = touch.clientY;
+    
+    // Find the target row
+    const elements = document.querySelectorAll('[data-meter-row]');
+    let targetMeterId: string | null = null;
+    
+    elements.forEach((element) => {
+      const rect = element.getBoundingClientRect();
+      if (currentY >= rect.top && currentY <= rect.bottom) {
+        targetMeterId = element.getAttribute('data-meter-id');
+      }
+    });
+    
+    // Perform reorder if valid target
+    if (targetMeterId && targetMeterId !== draggedMeter) {
+      reorderMeters(draggedMeter, targetMeterId);
+    }
+    
+    // Reset visual feedback
+    elements.forEach((element) => {
+      (element as HTMLElement).style.opacity = "";
+      (element as HTMLElement).style.backgroundColor = "";
+    });
+    
+    if (draggedElement) {
+      draggedElement.style.opacity = "";
+      draggedElement.style.backgroundColor = "";
+    }
+    
+    setDraggedMeter(null);
+    setTouchStartY(null);
+    setDraggedElement(null);
+  };
+
+  // Common reorder logic
+  const reorderMeters = (sourceMeterId: string, targetMeterId: string) => {
+    const draggedIndex = meters.findIndex((m) => m.meterId === sourceMeterId);
+    const targetIndex = meters.findIndex((m) => m.meterId === targetMeterId);
+
+    const newMeters = [...meters];
+    const [removed] = newMeters.splice(draggedIndex, 1);
+    newMeters.splice(targetIndex, 0, removed);
+
+    setMeters(newMeters);
+  };
+
+  const handleToggleMeter = (meterId: string) => {
     setSelectedMeters((prev) => {
       const newSelected = new Set(prev);
       if (newSelected.has(meterId)) {
@@ -144,19 +260,11 @@ export default function ReadingsPage({
     });
   };
 
-  const handleSelectAll = () => {
-    if (selectedMeters.size === meters.length) {
-      setSelectedMeters(new Set());
-    } else {
-      setSelectedMeters(new Set(meters.map((m) => m.meterId)));
-    }
-  };
-
   const handleSave = async () => {
     const metersToSave = meters.filter((m) => selectedMeters.has(m.meterId));
 
     if (metersToSave.length === 0) {
-      setMessage("Please select at least one meter");
+      setMessage("Please add readings to at least one meter");
       setMessageType("error");
       return;
     }
@@ -165,7 +273,7 @@ export default function ReadingsPage({
       (m) => !readings[m.meterId],
     );
     if (metersWithoutReadings.length > 0) {
-      setMessage("Please enter readings for all selected meters");
+      setMessage("Please enter readings for all meters with data");
       setMessageType("error");
       return;
     }
@@ -176,7 +284,7 @@ export default function ReadingsPage({
     try {
       const readingsPayload = metersToSave.map((meter) => ({
         meterId: meter.meterId,
-        amrId: meter.amrId || "", // Use empty string if amrId is null/undefined
+        amrId: meter.amrId || "",
         reading: readings[meter.meterId],
       }));
 
@@ -218,35 +326,35 @@ export default function ReadingsPage({
   };
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 3 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 1 }}>
       {/* Header */}
       <Box
         sx={{
           bgcolor: "background.paper",
           borderBottom: 1,
           borderColor: "divider",
-          px: 2,
-          py: 2,
+          px: 1.5,
+          py: 1,
         }}
       >
         <Stack
           direction="row"
           justifyContent="space-between"
-          alignItems="flex-start"
+          alignItems="center"
         >
           <Box>
-            <Typography variant="h5" fontWeight={600}>
+            <Typography variant="subtitle1" fontWeight={600}>
               Readings
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Logged in as: <strong>{fieldUsername}</strong>
+            <Typography variant="caption" color="text.secondary">
+              {fieldUsername}
             </Typography>
           </Box>
           <Button
             onClick={onLogout}
             variant="outlined"
             size="small"
-            sx={{ minWidth: 80 }}
+            sx={{ minWidth: 65, py: 0.5 }}
           >
             Logout
           </Button>
@@ -254,10 +362,10 @@ export default function ReadingsPage({
       </Box>
 
       {/* Content */}
-      <Box sx={{ px: 2, pt: 3, maxWidth: 1200, mx: "auto" }}>
+      <Box sx={{ px: 1.5, pt: 1.5 }}>
         {/* Community Selection */}
-        <Card sx={{ p: 2.5, mb: 2 }}>
-          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>
+        <Card sx={{ p: 1.5, mb: 1.5 }}>
+          <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
             Select Community
           </Typography>
           <Autocomplete
@@ -310,7 +418,7 @@ export default function ReadingsPage({
           <Alert
             severity={messageType}
             onClose={() => setMessage("")}
-            sx={{ mb: 2 }}
+            sx={{ mb: 1.5 }}
           >
             {message}
           </Alert>
@@ -318,46 +426,27 @@ export default function ReadingsPage({
 
         {/* Meters Table */}
         {selectedCommunity && (
-          <Card sx={{ p: 0 }}>
+          <Card>
             {loading ? (
-              <Box sx={{ p: 5, textAlign: "center" }}>
-                <CircularProgress size={40} />
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mt: 2 }}
-                >
+              <Box sx={{ p: 3, textAlign: "center" }}>
+                <Typography variant="body2" color="text.secondary">
                   Loading meters...
                 </Typography>
               </Box>
             ) : meters.length > 0 ? (
               <>
-                {/* Table Header */}
+                {/* Header */}
                 <Box
                   sx={{
-                    pl: 1,
-                    pr: 2.5,
-                    py: 2,
+                    px: 1.5,
+                    py: 1,
                     borderBottom: 1,
                     borderColor: "divider",
                   }}
                 >
-                  <Stack direction="row" alignItems="center" spacing={1.5}>
-                    <Checkbox
-                      checked={
-                        selectedMeters.size === meters.length &&
-                        meters.length > 0
-                      }
-                      indeterminate={
-                        selectedMeters.size > 0 &&
-                        selectedMeters.size < meters.length
-                      }
-                      onChange={handleSelectAll}
-                    />
-                    <Typography variant="subtitle2" fontWeight={600}>
-                      {meters.length} Meter{meters.length !== 1 ? "s" : ""}
-                    </Typography>
-                  </Stack>
+                  <Typography variant="body2" fontWeight={600}>
+                    {meters.length} Meter{meters.length !== 1 ? "s" : ""}
+                  </Typography>
                 </Box>
 
                 {/* Table */}
@@ -366,39 +455,53 @@ export default function ReadingsPage({
                     <TableHead>
                       <TableRow>
                         <TableCell
-                          padding="checkbox"
-                          sx={{ bgcolor: "background.neutral" }}
-                        >
-                          Select
-                        </TableCell>
+                          padding="none"
+                          sx={{
+                            bgcolor: "grey.50",
+                            width: 35,
+                            pl: 0.5,
+                          }}
+                        />
                         <TableCell
                           sx={{
-                            bgcolor: "background.neutral",
+                            bgcolor: "grey.50",
                             fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
                           }}
                         >
-                          Type
+                          Meter Type
                         </TableCell>
                         <TableCell
                           sx={{
-                            bgcolor: "background.neutral",
+                            bgcolor: "grey.50",
                             fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
                           }}
                         >
                           AMR ID
                         </TableCell>
                         <TableCell
                           sx={{
-                            bgcolor: "background.neutral",
+                            bgcolor: "grey.50",
                             fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
                           }}
                         >
-                          Unit ID
+                          Unit NO
                         </TableCell>
                         <TableCell
                           sx={{
-                            bgcolor: "background.neutral",
+                            bgcolor: "grey.50",
                             fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
                           }}
                         >
                           Reading
@@ -409,52 +512,90 @@ export default function ReadingsPage({
                       {meters.map((meter) => (
                         <TableRow
                           key={meter.meterId}
+                          data-meter-row
+                          data-meter-id={meter.meterId}
+                          draggable
+                          onDragStart={() => handleDragStart(meter.meterId)}
+                          onDragOver={handleDragOver}
+                          onDrop={() => handleDrop(meter.meterId)}
+                          onTouchStart={(e) => handleTouchStart(e, meter.meterId)}
+                          onTouchMove={handleTouchMove}
+                          onTouchEnd={handleTouchEnd}
+                          onClick={() => handleToggleMeter(meter.meterId)}
                           sx={{
+                            cursor: "grab",
+                            touchAction: "none", // Prevent default touch behaviors
+                            userSelect: "none", // Prevent text selection
+                            WebkitUserSelect: "none",
+                            "&:active": {
+                              cursor: "grabbing",
+                            },
                             bgcolor: selectedMeters.has(meter.meterId)
                               ? "action.selected"
                               : "transparent",
+                            "&:hover": {
+                              bgcolor: selectedMeters.has(meter.meterId)
+                                ? "action.selected"
+                                : "action.hover",
+                            },
+                            transition: "background-color 0.2s ease",
                           }}
                         >
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              checked={selectedMeters.has(meter.meterId)}
-                              onChange={() => handleSelectMeter(meter.meterId)}
-                            />
+                          <TableCell padding="none" sx={{ pl: 0.5 }}>
+                            <IconButton
+                              size="small"
+                              sx={{ 
+                                p: 0.25, 
+                                cursor: "grab",
+                                touchAction: "none",
+                              }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onTouchStart={(e) => e.stopPropagation()}
+                            >
+                              <DragIndicatorIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
                           </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
+                          <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                            <Typography variant="body2" fontSize="0.75rem">
                               {meter.meterType || "N/A"}
                             </Typography>
                           </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
+                          <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                            <Typography variant="body2" fontSize="0.75rem">
                               {meter.amrId || "N/A"}
                             </Typography>
                           </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={500}>
+                          <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                            <Typography variant="body2" fontSize="0.75rem" fontWeight={500}>
                               {meter.unitId}
                             </Typography>
                           </TableCell>
-                          <TableCell sx={{ pl: 0.5 }}>
+                          <TableCell sx={{ py: 0.75, px: 0.75 }}>
                             <TextField
                               type="number"
                               size="small"
                               placeholder="Enter"
                               value={readings[meter.meterId] || ""}
-                              onChange={(e) =>
-                                handleReadingChange(
-                                  meter.meterId,
-                                  e.target.value,
-                                )
-                              }
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleReadingChange(meter.meterId, e.target.value);
+                                if (e.target.value && !selectedMeters.has(meter.meterId)) {
+                                  setSelectedMeters((prev) => new Set(prev).add(meter.meterId));
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              onTouchStart={(e) => e.stopPropagation()}
                               inputProps={{
                                 step: "0.01",
                                 min: "0",
                               }}
-                              disabled={!selectedMeters.has(meter.meterId)}
                               fullWidth
-                              sx={{ maxWidth: 120 }}
+                              sx={{
+                                "& .MuiInputBase-input": {
+                                  padding: "4px 6px",
+                                  fontSize: "0.75rem",
+                                },
+                              }}
                             />
                           </TableCell>
                         </TableRow>
@@ -467,27 +608,25 @@ export default function ReadingsPage({
                 {selectedMeters.size > 0 && (
                   <Box
                     sx={{
-                      px: 2.5,
-                      py: 2,
+                      px: 1.5,
+                      py: 1,
                       borderTop: 1,
                       borderColor: "divider",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      bgcolor: "grey.50",
                     }}
                   >
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      fontWeight={500}
-                    >
+                    <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
                       {selectedMeters.size} selected
                     </Typography>
                     <LoadingButton
                       onClick={handleSave}
                       loading={saving}
                       variant="contained"
-                      size="medium"
+                      size="small"
+                      sx={{ py: 0.5, fontSize: "0.8rem" }}
                     >
                       Save ({selectedMeters.size})
                     </LoadingButton>
@@ -495,9 +634,9 @@ export default function ReadingsPage({
                 )}
               </>
             ) : (
-              <Box sx={{ p: 5, textAlign: "center" }}>
+              <Box sx={{ p: 3, textAlign: "center" }}>
                 <Typography variant="body2" color="text.secondary">
-                  No meters found for this community
+                  No meters found
                 </Typography>
               </Box>
             )}
