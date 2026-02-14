@@ -62,6 +62,8 @@ export const meters = pgTable('meters', {
 
   unitId: integer('unit_id'),
 
+  fieldSortOrder: integer('field_sort_order').default(0),
+
   isActive: boolean('is_active').default(true),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),

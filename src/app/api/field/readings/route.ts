@@ -18,14 +18,14 @@ interface BulkReadingsRequest {
   fieldUserId: string;
   communityId: string;
   readingDate: string;
+  inputType: string;
   readings: SingleReading[];
 }
 
 export async function POST(request: Request) {
   const body: BulkReadingsRequest = await request.json();
-  const { fieldUserId, communityId, readingDate, readings } = body;
+  const { readingDate, readings } = body;
 
-  // Validate inputs
   if (!readings || readings.length === 0) {
     return Response.json(
       { message: 'Readings array is required and cannot be empty' },
@@ -41,23 +41,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Single transaction for atomicity - all readings save together or none
     const results = await db.transaction(async (tx) => {
       const savedReadings = [];
 
       for (const reading of readings) {
         const { meterId, amrId, reading: readingValue } = reading;
 
-        // Validate each reading
         if (!meterId) {
           throw new Error('Meter ID is required for each reading');
         }
 
-        if (readingValue === undefined || readingValue === null) {
-          throw new Error(`Reading value is required for meter ${meterId}`);
-        }
-
-        // Check if meter reading exists (meterId is unique)
         const existing = await tx
           .select()
           .from(currentReadings)
@@ -67,36 +60,31 @@ export async function POST(request: Request) {
         let result;
 
         if (existing.length > 0) {
-          // Update existing reading for this meter
           const [updated] = await tx
             .update(currentReadings)
             .set({
               readings: readingValue,
               readingDate: readingDate,
-              inputType: 'Manual',
-              amrId: amrId || existing[0].amrId,
+              inputType: 'Field',
             })
             .where(eq(currentReadings.id, existing[0].id))
             .returning();
 
           result = updated;
         } else {
-          // Insert new reading
           const [inserted] = await tx
             .insert(currentReadings)
             .values({
               meterId,
-              amrId: amrId || null,
               readings: readingValue,
               readingDate,
-              inputType: 'Manual',
+              inputType: 'Field',
             })
             .returning();
 
           result = inserted;
         }
 
-        // Verify save was successful
         if (!result) {
           throw new Error(`Failed to save reading for meter ${meterId}`);
         }

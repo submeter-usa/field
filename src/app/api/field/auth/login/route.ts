@@ -1,9 +1,8 @@
 // POST /api/field/auth/login
-// Simple field user authentication - update last_login timestamp
-// src\app\api\field\auth\login\route.ts
 import { eq } from 'drizzle-orm';
 import db from '@/db/drizzle-postgres';
 import { fieldUsers } from '@/db/schema/index';
+import { cookies } from 'next/headers';
 
 export const revalidate = 0;
 
@@ -24,7 +23,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Find user by login and password
     const user = await db
       .select()
       .from(fieldUsers)
@@ -40,8 +38,6 @@ export async function POST(request: Request) {
 
     const fieldUser = user[0];
 
-    // Simple password comparison (unhashed as per spec)
-    // TODO: Consider switching to bcrypt in production
     if (fieldUser.pwd !== pwd) {
       return Response.json(
         { message: 'Invalid login or password' },
@@ -49,11 +45,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update last login timestamp
+    // Update last login
     await db
       .update(fieldUsers)
       .set({ lastLogin: new Date() })
       .where(eq(fieldUsers.id, fieldUser.id));
+
+    // Set HTTP-only cookie (24 hour expiry)
+    const cookieStore = await cookies();
+    cookieStore.set('fieldSessionId', fieldUser.id, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 86400, // 24 hours
+      path: '/',
+    });
 
     return Response.json(
       {
