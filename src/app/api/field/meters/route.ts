@@ -1,6 +1,6 @@
 // GET /api/field/meters
 // Fetch meters for a specific community with latest readings and sort order
-// src/app/api/field/meters/route.ts
+// src/app/api/field/meters/route.ts 
 
 import { sql } from "drizzle-orm";
 import db from "@/db/drizzle-postgres";
