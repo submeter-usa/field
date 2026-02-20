@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import axios from "axios";
 import {
   Box,
@@ -64,7 +70,9 @@ export default function ReadingsPage({
   onLogout,
 }: ReadingsPageProps) {
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(null);
+  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(
+    null,
+  );
   const [communityInputValue, setCommunityInputValue] = useState("");
   const [meters, setMeters] = useState<Meter[]>([]);
   const [readings, setReadings] = useState<Record<string, string>>({});
@@ -72,17 +80,23 @@ export default function ReadingsPage({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error">("success");
+  const [messageType, setMessageType] = useState<"success" | "error">(
+    "success",
+  );
   const [draggedMeter, setDraggedMeter] = useState<string | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    new Set(["meterType", "amrId", "unitId", "reading"])
+    new Set(["meterType", "amrId", "unitId", "reading"]),
   );
 
   // Use refs to always have latest state in handlers without causing re-renders
   const metersRef = useRef(meters);
   const selectedCommunityRef = useRef(selectedCommunity);
-  useEffect(() => { metersRef.current = meters; }, [meters]);
-  useEffect(() => { selectedCommunityRef.current = selectedCommunity; }, [selectedCommunity]);
+  useEffect(() => {
+    metersRef.current = meters;
+  }, [meters]);
+  useEffect(() => {
+    selectedCommunityRef.current = selectedCommunity;
+  }, [selectedCommunity]);
 
   const toggleColumn = (columnName: string) => {
     setVisibleColumns((prev) => {
@@ -101,32 +115,39 @@ export default function ReadingsPage({
   }, []);
 
   // Core reorder logic — always reads from ref so it's never stale
-  const reorderMeters = useCallback(async (sourceMeterId: string, targetMeterId: string) => {
-    const currentMeters = metersRef.current;
-    const draggedIndex = currentMeters.findIndex((m) => m.meterId === sourceMeterId);
-    const targetIndex = currentMeters.findIndex((m) => m.meterId === targetMeterId);
+  const reorderMeters = useCallback(
+    async (sourceMeterId: string, targetMeterId: string) => {
+      const currentMeters = metersRef.current;
+      const draggedIndex = currentMeters.findIndex(
+        (m) => m.meterId === sourceMeterId,
+      );
+      const targetIndex = currentMeters.findIndex(
+        (m) => m.meterId === targetMeterId,
+      );
 
-    if (draggedIndex === -1 || targetIndex === -1) return;
+      if (draggedIndex === -1 || targetIndex === -1) return;
 
-    const newMeters = [...currentMeters];
-    const [removed] = newMeters.splice(draggedIndex, 1);
-    newMeters.splice(targetIndex, 0, removed);
+      const newMeters = [...currentMeters];
+      const [removed] = newMeters.splice(draggedIndex, 1);
+      newMeters.splice(targetIndex, 0, removed);
 
-    setMeters(newMeters);
+      setMeters(newMeters);
 
-    try {
-      const sortOrder = newMeters.map((m, index) => ({
-        meterId: m.meterId,
-        fieldSortOrder: index,
-      }));
-      await axios.post("/api/field/meters/sort", {
-        communityId: selectedCommunityRef.current?.id,
-        sortOrder,
-      });
-    } catch (err) {
-      console.error("Error saving sort order:", err);
-    }
-  }, []); // stable — uses refs internally
+      try {
+        const sortOrder = newMeters.map((m, index) => ({
+          meterId: m.meterId,
+          fieldSortOrder: index,
+        }));
+        await axios.post("/api/field/meters/sort", {
+          communityId: selectedCommunityRef.current?.id,
+          sortOrder,
+        });
+      } catch (err) {
+        console.error("Error saving sort order:", err);
+      }
+    },
+    [],
+  ); // stable — uses refs internally
 
   const handleDragStart = useCallback((meterId: string) => {
     setDraggedMeter(meterId);
@@ -136,23 +157,29 @@ export default function ReadingsPage({
     e.preventDefault();
   }, []);
 
-  const handleDrop = useCallback((targetMeterId: string) => {
-    setDraggedMeter((current) => {
-      if (!current || current === targetMeterId) return null;
-      reorderMeters(current, targetMeterId);
-      return null;
-    });
-  }, [reorderMeters]);
+  const handleDrop = useCallback(
+    (targetMeterId: string) => {
+      setDraggedMeter((current) => {
+        if (!current || current === targetMeterId) return null;
+        reorderMeters(current, targetMeterId);
+        return null;
+      });
+    },
+    [reorderMeters],
+  );
 
   // Touch drag state kept in refs to avoid triggering re-renders mid-gesture
   const touchDraggedMeter = useRef<string | null>(null);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, meterId: string) => {
-    touchDraggedMeter.current = meterId;
-    const target = e.currentTarget as HTMLElement;
-    target.style.opacity = "0.5";
-    target.style.backgroundColor = "#e3f2fd";
-  }, []);
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent, meterId: string) => {
+      touchDraggedMeter.current = meterId;
+      const target = e.currentTarget as HTMLElement;
+      target.style.opacity = "0.5";
+      target.style.backgroundColor = "#e3f2fd";
+    },
+    [],
+  );
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchDraggedMeter.current) return;
@@ -165,7 +192,8 @@ export default function ReadingsPage({
       const rect = element.getBoundingClientRect();
       const el = element as HTMLElement;
       const isOver = touch.clientY >= rect.top && touch.clientY <= rect.bottom;
-      const isSource = element.getAttribute("data-meter-id") === touchDraggedMeter.current;
+      const isSource =
+        element.getAttribute("data-meter-id") === touchDraggedMeter.current;
 
       if (isOver && !isSource) {
         el.style.backgroundColor = "#bbdefb";
@@ -175,34 +203,37 @@ export default function ReadingsPage({
     });
   }, []);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const source = touchDraggedMeter.current;
-    if (!source) return;
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const source = touchDraggedMeter.current;
+      if (!source) return;
 
-    const touch = e.changedTouches[0];
-    const elements = document.querySelectorAll("[data-meter-row]");
-    let targetMeterId: string | null = null;
+      const touch = e.changedTouches[0];
+      const elements = document.querySelectorAll("[data-meter-row]");
+      let targetMeterId: string | null = null;
 
-    elements.forEach((element) => {
-      const rect = element.getBoundingClientRect();
-      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-        targetMeterId = element.getAttribute("data-meter-id");
+      elements.forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+          targetMeterId = element.getAttribute("data-meter-id");
+        }
+      });
+
+      // Reset styles
+      elements.forEach((element) => {
+        const el = element as HTMLElement;
+        el.style.opacity = "";
+        el.style.backgroundColor = "";
+      });
+
+      touchDraggedMeter.current = null;
+
+      if (targetMeterId && targetMeterId !== source) {
+        reorderMeters(source, targetMeterId);
       }
-    });
-
-    // Reset styles
-    elements.forEach((element) => {
-      const el = element as HTMLElement;
-      el.style.opacity = "";
-      el.style.backgroundColor = "";
-    });
-
-    touchDraggedMeter.current = null;
-
-    if (targetMeterId && targetMeterId !== source) {
-      reorderMeters(source, targetMeterId);
-    }
-  }, [reorderMeters]);
+    },
+    [reorderMeters],
+  );
 
   const handleToggleMeter = useCallback((meterId: string) => {
     setSelectedMeters((prev) => {
@@ -237,9 +268,13 @@ export default function ReadingsPage({
             userSelect: "none",
             WebkitUserSelect: "none",
             "&:active": { cursor: "grabbing" },
-            bgcolor: selectedMeters.has(meter.meterId) ? "action.selected" : "transparent",
+            bgcolor: selectedMeters.has(meter.meterId)
+              ? "action.selected"
+              : "transparent",
             "&:hover": {
-              bgcolor: selectedMeters.has(meter.meterId) ? "action.selected" : "action.hover",
+              bgcolor: selectedMeters.has(meter.meterId)
+                ? "action.selected"
+                : "action.hover",
             },
             transition: "background-color 0.2s ease",
           }}
@@ -286,7 +321,9 @@ export default function ReadingsPage({
                   e.stopPropagation();
                   handleReadingChange(meter.meterId, e.target.value);
                   if (e.target.value && !selectedMeters.has(meter.meterId)) {
-                    setSelectedMeters((prev) => new Set(prev).add(meter.meterId));
+                    setSelectedMeters((prev) =>
+                      new Set(prev).add(meter.meterId),
+                    );
                   }
                 }}
                 onClick={(e) => e.stopPropagation()}
@@ -305,7 +342,7 @@ export default function ReadingsPage({
         </TableRow>
       )),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [meters, selectedMeters, readings, visibleColumns]
+    [meters, selectedMeters, readings, visibleColumns],
     // handlers are stable useCallbacks so they don't need to be listed
   );
 
@@ -353,7 +390,12 @@ export default function ReadingsPage({
   }, [selectedCommunity]);
 
   const handleSave = async () => {
-    const metersToSave = meters.filter((m) => selectedMeters.has(m.meterId));
+    const metersToSave = meters.filter(
+      (m) =>
+        selectedMeters.has(m.meterId) &&
+        readings[m.meterId] !== undefined &&
+        readings[m.meterId] !== "",
+    );
 
     if (metersToSave.length === 0) {
       setMessage("Please add readings to at least one meter");
@@ -367,7 +409,7 @@ export default function ReadingsPage({
     try {
       const readingsPayload = metersToSave.map((meter) => ({
         meterId: meter.meterId,
-        amrId: meter.amrId || "",
+        amrId: meter.amrId ?? null,
         reading: readings[meter.meterId],
       }));
 
@@ -395,7 +437,8 @@ export default function ReadingsPage({
       }, 500);
     } catch (err: unknown) {
       const axiosError = err as AxiosErrorResponse;
-      const errorMessage = axiosError.response?.data?.message || "Failed to save readings";
+      const errorMessage =
+        axiosError.response?.data?.message || "Failed to save readings";
       setMessage(`Error: ${errorMessage}`);
       setMessageType("error");
     } finally {
@@ -404,10 +447,14 @@ export default function ReadingsPage({
   };
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 1 }}>
-      {/* Header */}
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 10 }}>
+
+      {/* Header — sticky so it stays visible while scrolling */}
       <Box
         sx={{
+          position: "sticky",
+          top: 0,
+          zIndex: 100,
           bgcolor: "background.paper",
           borderBottom: 1,
           borderColor: "divider",
@@ -415,7 +462,11 @@ export default function ReadingsPage({
           py: 1,
         }}
       >
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
           <Box>
             <Typography variant="subtitle1" fontWeight={600}>
               Readings
@@ -448,21 +499,9 @@ export default function ReadingsPage({
         </Stack>
       </Box>
 
-      {/* Content */}
-      <Box
-        sx={{
-          px: 1.5,
-          pt: 1.5,
-          overflowY: "auto",
-          height: "calc(100vh - 80px)",
-          scrollbarWidth: "thick",
-          scrollbarColor: "#888 #f1f1f1",
-          "&::-webkit-scrollbar": { width: "12px" },
-          "&::-webkit-scrollbar-track": { background: "#f1f1f1" },
-          "&::-webkit-scrollbar-thumb": { background: "#888", borderRadius: "6px" },
-          "&::-webkit-scrollbar-thumb:hover": { background: "#555" },
-        }}
-      >
+      {/* Content — no fixed height, page scrolls naturally on mobile */}
+      <Box sx={{ px: 1.5, pt: 1.5, pb: 4 }}>
+
         {/* Community Selection */}
         <Card sx={{ p: 1.5, mb: 1.5 }}>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
@@ -476,18 +515,29 @@ export default function ReadingsPage({
             value={selectedCommunity}
             onChange={(event, newValue) => setSelectedCommunity(newValue)}
             inputValue={communityInputValue}
-            onInputChange={(event, newInputValue) => setCommunityInputValue(newInputValue)}
+            onInputChange={(event, newInputValue) =>
+              setCommunityInputValue(newInputValue)
+            }
             renderInput={(params) => (
-              <TextField {...params} placeholder="Search community..." size="small" />
+              <TextField
+                {...params}
+                placeholder="Search community..."
+                size="small"
+              />
             )}
             renderOption={(props, option, { inputValue }) => {
-              const matches = match(option.name, inputValue, { insideWords: true });
+              const matches = match(option.name, inputValue, {
+                insideWords: true,
+              });
               const parts = parse(option.name, matches);
               return (
                 <li {...props} key={option.id}>
                   <div>
                     {parts.map((part, index) => (
-                      <span key={index} style={{ fontWeight: part.highlight ? 700 : 400 }}>
+                      <span
+                        key={index}
+                        style={{ fontWeight: part.highlight ? 700 : 400 }}
+                      >
                         {part.text}
                       </span>
                     ))}
@@ -500,7 +550,11 @@ export default function ReadingsPage({
 
         {/* Message Display */}
         {message && (
-          <Alert severity={messageType} onClose={() => setMessage("")} sx={{ mb: 1.5 }}>
+          <Alert
+            severity={messageType}
+            onClose={() => setMessage("")}
+            sx={{ mb: 1.5 }}
+          >
             {message}
           </Alert>
         )}
@@ -537,7 +591,8 @@ export default function ReadingsPage({
                     onClick={() => {
                       const menu = document.getElementById("column-menu");
                       if (menu) {
-                        menu.style.display = menu.style.display === "none" ? "block" : "none";
+                        menu.style.display =
+                          menu.style.display === "none" ? "block" : "none";
                       }
                     }}
                     sx={{ fontSize: "0.75rem", py: 0.25 }}
@@ -566,7 +621,9 @@ export default function ReadingsPage({
                         sx={{
                           p: 1,
                           cursor: "pointer",
-                          bgcolor: visibleColumns.has(col) ? "action.selected" : "transparent",
+                          bgcolor: visibleColumns.has(col)
+                            ? "action.selected"
+                            : "transparent",
                           "&:hover": { bgcolor: "action.hover" },
                           borderBottom: "1px solid",
                           borderColor: "divider",
@@ -593,39 +650,66 @@ export default function ReadingsPage({
                 </Box>
 
                 {/* Table */}
-                <TableContainer>
+                <TableContainer sx={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="none" sx={{ bgcolor: "grey.50", width: 35, pl: 0.5 }} />
+                        <TableCell
+                          padding="none"
+                          sx={{ bgcolor: "grey.50", width: 35, pl: 0.5 }}
+                        />
                         <TableCell
                           sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("meterType") ? "table-cell" : "none",
+                            bgcolor: "grey.50",
+                            fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
+                            display: visibleColumns.has("meterType")
+                              ? "table-cell"
+                              : "none",
                           }}
                         >
                           Meter Type
                         </TableCell>
                         <TableCell
                           sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("amrId") ? "table-cell" : "none",
+                            bgcolor: "grey.50",
+                            fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
+                            display: visibleColumns.has("amrId")
+                              ? "table-cell"
+                              : "none",
                           }}
                         >
                           AMR ID
                         </TableCell>
                         <TableCell
                           sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("unitId") ? "table-cell" : "none",
+                            bgcolor: "grey.50",
+                            fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
+                            display: visibleColumns.has("unitId")
+                              ? "table-cell"
+                              : "none",
                           }}
                         >
                           Unit NO
                         </TableCell>
                         <TableCell
                           sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("reading") ? "table-cell" : "none",
+                            bgcolor: "grey.50",
+                            fontWeight: 600,
+                            fontSize: "0.75rem",
+                            py: 0.75,
+                            px: 0.75,
+                            display: visibleColumns.has("reading")
+                              ? "table-cell"
+                              : "none",
                           }}
                         >
                           Reading
@@ -650,7 +734,11 @@ export default function ReadingsPage({
                       bgcolor: "grey.50",
                     }}
                   >
-                    <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      fontSize="0.8rem"
+                    >
                       {selectedMeters.size} selected
                     </Typography>
                     <LoadingButton
@@ -675,6 +763,55 @@ export default function ReadingsPage({
           </Card>
         )}
       </Box>
+
+      {/* Floating ↑ ↓ scroll buttons — easy to tap on mobile */}
+      <Box
+        sx={{
+          position: "fixed",
+          right: 12,
+          bottom: 80,
+          zIndex: 999,
+          display: "flex",
+          flexDirection: "column",
+          gap: 1,
+        }}
+      >
+        <Button
+          variant="contained"
+          size="small"
+          sx={{
+            minWidth: 40,
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            p: 0,
+            fontSize: "1.2rem",
+            boxShadow: 3,
+            opacity: 0.85,
+          }}
+          onClick={() => window.scrollBy({ top: -window.innerHeight * 0.7, behavior: "smooth" })}
+        >
+          ↑
+        </Button>
+        <Button
+          variant="contained"
+          size="small"
+          sx={{
+            minWidth: 40,
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            p: 0,
+            fontSize: "1.2rem",
+            boxShadow: 3,
+            opacity: 0.85,
+          }}
+          onClick={() => window.scrollBy({ top: window.innerHeight * 0.7, behavior: "smooth" })}
+        >
+          ↓
+        </Button>
+      </Box>
+
     </Box>
   );
 }
