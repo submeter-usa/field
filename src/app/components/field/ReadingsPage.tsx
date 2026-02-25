@@ -496,8 +496,8 @@ export default function ReadingsPage({
   const columnDefs = [
     { key: "amrId", label: "AMR ID" },
     { key: "unitId", label: "Unit NO" },
-    { key: "previousReading", label: "Prev Read" },
-    { key: "reading", label: "Curr Read" },
+    { key: "previousReading", label: "Prev Reading" },
+    { key: "reading", label: "Curr Reading" },
     { key: "usage", label: "Usage" },
   ];
 
@@ -748,7 +748,7 @@ export default function ReadingsPage({
                               px: 0.75,
                             }}
                           >
-                            Prev Read
+                            Prev Reading
                           </TableCell>
                         )}
                         {visibleColumns.has("reading") && (
@@ -761,7 +761,7 @@ export default function ReadingsPage({
                               px: 0.75,
                             }}
                           >
-                            Curr Read
+                            Curr Reading
                           </TableCell>
                         )}
                         {visibleColumns.has("usage") && (
