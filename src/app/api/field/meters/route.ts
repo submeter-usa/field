@@ -1,6 +1,6 @@
 // GET /api/field/meters
 // Fetch meters for a specific community with latest readings and sort order
-// src/app/api/field/meters/route.ts 
+// src/app/api/field/meters/route.ts
 
 import { sql } from "drizzle-orm";
 import db from "@/db/drizzle-postgres";
@@ -15,6 +15,7 @@ interface MeterRow {
   fieldSortOrder: number;
   currentReading?: string;
   lastReadingDate?: string;
+  previousReading?: string;
 }
 
 export async function GET(request: Request) {
@@ -47,16 +48,16 @@ export async function GET(request: Request) {
           em.meter_type AS "meterType",
           COALESCE(m."field_sort_order", 999) AS "fieldSortOrder",
           cr."readings" AS "currentReading",
-          cr."reading_date" AS "lastReadingDate"
+          cr."reading_date" AS "lastReadingDate",
+          pr."readings" AS "previousReading"
         FROM expanded_meters em
         LEFT JOIN "meters" m ON m."meter_id" = em.meter_id
         LEFT JOIN "current_readings" cr ON cr."meter_id" = em.meter_id
+        LEFT JOIN "previous_readings" pr ON pr."meter_id" = em.meter_id
         ORDER BY em.meter_id, cr."reading_date" DESC NULLS LAST
       `,
     );
 
-    // Sort by fieldSortOrder
-    // Sort by fieldSortOrder
     const sortedMeters = (metersList as unknown as MeterRow[]).sort((a, b) => {
       const aSort = a.fieldSortOrder ?? 999;
       const bSort = b.fieldSortOrder ?? 999;

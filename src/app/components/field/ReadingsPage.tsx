@@ -44,6 +44,7 @@ interface Meter {
   currentReading?: string;
   lastReadingDate?: string;
   fieldSortOrder?: number;
+  previousReading?: string;
 }
 
 interface Community {
@@ -85,7 +86,7 @@ export default function ReadingsPage({
   );
   const [draggedMeter, setDraggedMeter] = useState<string | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    new Set(["meterType", "amrId", "unitId", "reading"]),
+    new Set(["amrId", "unitId", "previousReading", "reading", "usage"]),
   );
 
   // Use refs to always have latest state in handlers without causing re-renders
@@ -249,101 +250,146 @@ export default function ReadingsPage({
 
   const meterRows = useMemo(
     () =>
-      meters.map((meter) => (
-        <TableRow
-          key={meter.meterId}
-          data-meter-row
-          data-meter-id={meter.meterId}
-          draggable
-          onDragStart={() => handleDragStart(meter.meterId)}
-          onDragOver={handleDragOver}
-          onDrop={() => handleDrop(meter.meterId)}
-          onTouchStart={(e) => handleTouchStart(e, meter.meterId)}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onClick={() => handleToggleMeter(meter.meterId)}
-          sx={{
-            cursor: "grab",
-            touchAction: "none",
-            userSelect: "none",
-            WebkitUserSelect: "none",
-            "&:active": { cursor: "grabbing" },
-            bgcolor: selectedMeters.has(meter.meterId)
-              ? "action.selected"
-              : "transparent",
-            "&:hover": {
+      meters.map((meter) => {
+        // Calculate usage: current (typed) - previous (from DB)
+        const currVal = readings[meter.meterId] ?? meter.currentReading;
+        const prevVal = meter.previousReading;
+        const usage =
+          currVal !== undefined &&
+          currVal !== "" &&
+          prevVal !== undefined &&
+          prevVal !== null
+            ? Number(currVal) - Number(prevVal)
+            : null;
+
+        return (
+          <TableRow
+            key={meter.meterId}
+            data-meter-row
+            data-meter-id={meter.meterId}
+            draggable
+            onDragStart={() => handleDragStart(meter.meterId)}
+            onDragOver={handleDragOver}
+            onDrop={() => handleDrop(meter.meterId)}
+            onTouchStart={(e) => handleTouchStart(e, meter.meterId)}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onClick={() => handleToggleMeter(meter.meterId)}
+            sx={{
+              cursor: "grab",
+              touchAction: "none",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              "&:active": { cursor: "grabbing" },
               bgcolor: selectedMeters.has(meter.meterId)
                 ? "action.selected"
-                : "action.hover",
-            },
-            transition: "background-color 0.2s ease",
-          }}
-        >
-          <TableCell padding="none" sx={{ pl: 0.5 }}>
-            <IconButton
-              size="small"
-              sx={{ p: 0.25, cursor: "grab", touchAction: "none" }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <DragIndicatorIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </TableCell>
-          {visibleColumns.has("meterType") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <Typography variant="body2" fontSize="0.75rem">
-                {meter.meterType || "N/A"}
-              </Typography>
-            </TableCell>
-          )}
-          {visibleColumns.has("amrId") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <Typography variant="body2" fontSize="0.75rem">
-                {meter.amrId || "N/A"}
-              </Typography>
-            </TableCell>
-          )}
-          {visibleColumns.has("unitId") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <Typography variant="body2" fontSize="0.75rem" fontWeight={500}>
-                {meter.unitId}
-              </Typography>
-            </TableCell>
-          )}
-          {visibleColumns.has("reading") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <TextField
-                type="number"
+                : "transparent",
+              "&:hover": {
+                bgcolor: selectedMeters.has(meter.meterId)
+                  ? "action.selected"
+                  : "action.hover",
+              },
+              transition: "background-color 0.2s ease",
+            }}
+          >
+            {/* Drag handle */}
+            <TableCell padding="none" sx={{ pl: 0.5 }}>
+              <IconButton
                 size="small"
-                placeholder="Enter"
-                value={readings[meter.meterId] || ""}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  handleReadingChange(meter.meterId, e.target.value);
-                  if (e.target.value && !selectedMeters.has(meter.meterId)) {
-                    setSelectedMeters((prev) =>
-                      new Set(prev).add(meter.meterId),
-                    );
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
+                sx={{ p: 0.25, cursor: "grab", touchAction: "none" }}
+                onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
-                inputProps={{ step: "0.01", min: "0" }}
-                fullWidth
-                sx={{
-                  "& .MuiInputBase-input": {
-                    padding: "4px 6px",
-                    fontSize: "0.75rem",
-                  },
-                }}
-              />
+              >
+                <DragIndicatorIcon sx={{ fontSize: 18 }} />
+              </IconButton>
             </TableCell>
-          )}
-        </TableRow>
-      )),
+
+            {/* AMR ID */}
+            {visibleColumns.has("amrId") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography variant="body2" fontSize="0.75rem">
+                  {meter.amrId || "N/A"}
+                </Typography>
+              </TableCell>
+            )}
+
+            {/* Unit NO */}
+            {visibleColumns.has("unitId") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography variant="body2" fontSize="0.75rem" fontWeight={500}>
+                  {meter.unitId}
+                </Typography>
+              </TableCell>
+            )}
+
+            {/* Previous Reading */}
+            {visibleColumns.has("previousReading") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography
+                  variant="body2"
+                  fontSize="0.75rem"
+                  color="text.secondary"
+                >
+                  {meter.previousReading ?? "—"}
+                </Typography>
+              </TableCell>
+            )}
+
+            {/* Current Reading input */}
+            {visibleColumns.has("reading") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <TextField
+                  type="number"
+                  size="small"
+                  placeholder={meter.currentReading ?? "Enter"}
+                  value={readings[meter.meterId] || ""}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    handleReadingChange(meter.meterId, e.target.value);
+                    if (e.target.value && !selectedMeters.has(meter.meterId)) {
+                      setSelectedMeters((prev) =>
+                        new Set(prev).add(meter.meterId),
+                      );
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  inputProps={{ step: "0.01", min: "0" }}
+                  fullWidth
+                  sx={{
+                    "& .MuiInputBase-input": {
+                      padding: "4px 6px",
+                      fontSize: "0.75rem",
+                    },
+                  }}
+                />
+              </TableCell>
+            )}
+
+            {/* Usage = current - previous */}
+            {visibleColumns.has("usage") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography
+                  variant="body2"
+                  fontSize="0.75rem"
+                  fontWeight={usage !== null ? 500 : 400}
+                  color={
+                    usage === null
+                      ? "text.secondary"
+                      : usage < 0
+                        ? "error.main"
+                        : "success.main"
+                  }
+                >
+                  {usage !== null ? usage.toFixed(2) : "—"}
+                </Typography>
+              </TableCell>
+            )}
+          </TableRow>
+        );
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [meters, selectedMeters, readings, visibleColumns],
-    // handlers are stable useCallbacks so they don't need to be listed
   );
 
   // Fetch communities on mount
@@ -446,10 +492,18 @@ export default function ReadingsPage({
     }
   };
 
+  // Column definitions for the toggle menu
+  const columnDefs = [
+    { key: "amrId", label: "AMR ID" },
+    { key: "unitId", label: "Unit NO" },
+    { key: "previousReading", label: "Prev Read" },
+    { key: "reading", label: "Curr Read" },
+    { key: "usage", label: "Usage" },
+  ];
+
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 10 }}>
-
-      {/* Header — sticky so it stays visible while scrolling */}
+      {/* Header — sticky */}
       <Box
         sx={{
           position: "sticky",
@@ -499,9 +553,8 @@ export default function ReadingsPage({
         </Stack>
       </Box>
 
-      {/* Content — no fixed height, page scrolls naturally on mobile */}
+      {/* Content */}
       <Box sx={{ px: 1.5, pt: 1.5, pb: 4 }}>
-
         {/* Community Selection */}
         <Card sx={{ p: 1.5, mb: 1.5 }}>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
@@ -570,7 +623,7 @@ export default function ReadingsPage({
               </Box>
             ) : meters.length > 0 ? (
               <>
-                {/* Header */}
+                {/* Card Header with column toggle */}
                 <Box
                   sx={{
                     px: 1.5,
@@ -614,14 +667,14 @@ export default function ReadingsPage({
                       mt: 0.5,
                     }}
                   >
-                    {["meterType", "amrId", "unitId", "reading"].map((col) => (
+                    {columnDefs.map((col) => (
                       <Box
-                        key={col}
-                        onClick={() => toggleColumn(col)}
+                        key={col.key}
+                        onClick={() => toggleColumn(col.key)}
                         sx={{
                           p: 1,
                           cursor: "pointer",
-                          bgcolor: visibleColumns.has(col)
+                          bgcolor: visibleColumns.has(col.key)
                             ? "action.selected"
                             : "transparent",
                           "&:hover": { bgcolor: "action.hover" },
@@ -636,84 +689,94 @@ export default function ReadingsPage({
                       >
                         <input
                           type="checkbox"
-                          checked={visibleColumns.has(col)}
+                          checked={visibleColumns.has(col.key)}
                           onChange={() => {}}
                           style={{ cursor: "pointer" }}
                         />
-                        {col === "meterType" && "Meter Type"}
-                        {col === "amrId" && "AMR ID"}
-                        {col === "unitId" && "Unit NO"}
-                        {col === "reading" && "Reading"}
+                        {col.label}
                       </Box>
                     ))}
                   </Box>
                 </Box>
 
                 {/* Table */}
-                <TableContainer sx={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                <TableContainer
+                  sx={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}
+                >
                   <Table size="small">
                     <TableHead>
                       <TableRow>
+                        {/* Drag handle column */}
                         <TableCell
                           padding="none"
                           sx={{ bgcolor: "grey.50", width: 35, pl: 0.5 }}
                         />
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50",
-                            fontWeight: 600,
-                            fontSize: "0.75rem",
-                            py: 0.75,
-                            px: 0.75,
-                            display: visibleColumns.has("meterType")
-                              ? "table-cell"
-                              : "none",
-                          }}
-                        >
-                          Meter Type
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50",
-                            fontWeight: 600,
-                            fontSize: "0.75rem",
-                            py: 0.75,
-                            px: 0.75,
-                            display: visibleColumns.has("amrId")
-                              ? "table-cell"
-                              : "none",
-                          }}
-                        >
-                          AMR ID
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50",
-                            fontWeight: 600,
-                            fontSize: "0.75rem",
-                            py: 0.75,
-                            px: 0.75,
-                            display: visibleColumns.has("unitId")
-                              ? "table-cell"
-                              : "none",
-                          }}
-                        >
-                          Unit NO
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50",
-                            fontWeight: 600,
-                            fontSize: "0.75rem",
-                            py: 0.75,
-                            px: 0.75,
-                            display: visibleColumns.has("reading")
-                              ? "table-cell"
-                              : "none",
-                          }}
-                        >
-                          Reading
-                        </TableCell>
+
+                        {visibleColumns.has("amrId") && (
+                          <TableCell
+                            sx={{
+                              bgcolor: "grey.50",
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                              py: 0.75,
+                              px: 0.75,
+                            }}
+                          >
+                            AMR ID
+                          </TableCell>
+                        )}
+                        {visibleColumns.has("unitId") && (
+                          <TableCell
+                            sx={{
+                              bgcolor: "grey.50",
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                              py: 0.75,
+                              px: 0.75,
+                            }}
+                          >
+                            Unit NO
+                          </TableCell>
+                        )}
+                        {visibleColumns.has("previousReading") && (
+                          <TableCell
+                            sx={{
+                              bgcolor: "grey.50",
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                              py: 0.75,
+                              px: 0.75,
+                            }}
+                          >
+                            Prev Read
+                          </TableCell>
+                        )}
+                        {visibleColumns.has("reading") && (
+                          <TableCell
+                            sx={{
+                              bgcolor: "grey.50",
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                              py: 0.75,
+                              px: 0.75,
+                            }}
+                          >
+                            Curr Read
+                          </TableCell>
+                        )}
+                        {visibleColumns.has("usage") && (
+                          <TableCell
+                            sx={{
+                              bgcolor: "grey.50",
+                              fontWeight: 600,
+                              fontSize: "0.75rem",
+                              py: 0.75,
+                              px: 0.75,
+                            }}
+                          >
+                            Usage
+                          </TableCell>
+                        )}
                       </TableRow>
                     </TableHead>
                     <TableBody>{meterRows}</TableBody>
@@ -764,7 +827,7 @@ export default function ReadingsPage({
         )}
       </Box>
 
-      {/* Floating ↑ ↓ scroll buttons — easy to tap on mobile */}
+      {/* Floating scroll buttons */}
       <Box
         sx={{
           position: "fixed",
@@ -789,7 +852,12 @@ export default function ReadingsPage({
             boxShadow: 3,
             opacity: 0.85,
           }}
-          onClick={() => window.scrollBy({ top: -window.innerHeight * 0.7, behavior: "smooth" })}
+          onClick={() =>
+            window.scrollBy({
+              top: -window.innerHeight * 0.7,
+              behavior: "smooth",
+            })
+          }
         >
           ↑
         </Button>
@@ -806,12 +874,16 @@ export default function ReadingsPage({
             boxShadow: 3,
             opacity: 0.85,
           }}
-          onClick={() => window.scrollBy({ top: window.innerHeight * 0.7, behavior: "smooth" })}
+          onClick={() =>
+            window.scrollBy({
+              top: window.innerHeight * 0.7,
+              behavior: "smooth",
+            })
+          }
         >
           ↓
         </Button>
       </Box>
-
     </Box>
   );
 }
