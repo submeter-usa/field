@@ -769,8 +769,8 @@ export default function ReadingsPage({
         sx={{
           position: "fixed",
           right: 12,
-          bottom: 80,
           zIndex: 999,
+          bottom: "calc(env(safe-area-inset-bottom) + 80px)",
           display: "flex",
           flexDirection: "column",
           gap: 1,
