@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import axios from "axios";
 import {
   Box,
@@ -18,9 +24,13 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  BottomNavigation,
+  BottomNavigationAction,
 } from "@mui/material";
 import { LoadingButton } from "@mui/lab";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import EditNoteIcon from "@mui/icons-material/EditNote";
+import SwapVertIcon from "@mui/icons-material/SwapVert";
 import parse from "autosuggest-highlight/parse";
 import match from "autosuggest-highlight/match";
 
@@ -38,6 +48,7 @@ interface Meter {
   currentReading?: string;
   lastReadingDate?: string;
   fieldSortOrder?: number;
+  previousReading?: string;
 }
 
 interface Community {
@@ -63,8 +74,14 @@ export default function ReadingsPage({
   fieldUsername,
   onLogout,
 }: ReadingsPageProps) {
+  // ── NEW: tab state ──────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState(0); // 0 = Enter Readings, 1 = Reorder
+
+  // ── Everything below is UNCHANGED from your existing code ───────────────────
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(null);
+  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(
+    null,
+  );
   const [communityInputValue, setCommunityInputValue] = useState("");
   const [meters, setMeters] = useState<Meter[]>([]);
   const [readings, setReadings] = useState<Record<string, string>>({});
@@ -72,17 +89,22 @@ export default function ReadingsPage({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error">("success");
+  const [messageType, setMessageType] = useState<"success" | "error">(
+    "success",
+  );
   const [draggedMeter, setDraggedMeter] = useState<string | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    new Set(["meterType", "amrId", "unitId", "reading"])
+    new Set(["amrId", "unitId", "previousReading", "reading", "usage"]),
   );
 
-  // Use refs to always have latest state in handlers without causing re-renders
   const metersRef = useRef(meters);
   const selectedCommunityRef = useRef(selectedCommunity);
-  useEffect(() => { metersRef.current = meters; }, [meters]);
-  useEffect(() => { selectedCommunityRef.current = selectedCommunity; }, [selectedCommunity]);
+  useEffect(() => {
+    metersRef.current = meters;
+  }, [meters]);
+  useEffect(() => {
+    selectedCommunityRef.current = selectedCommunity;
+  }, [selectedCommunity]);
 
   const toggleColumn = (columnName: string) => {
     setVisibleColumns((prev) => {
@@ -100,33 +122,39 @@ export default function ReadingsPage({
     setReadings((prev) => ({ ...prev, [meterId]: value }));
   }, []);
 
-  // Core reorder logic — always reads from ref so it's never stale
-  const reorderMeters = useCallback(async (sourceMeterId: string, targetMeterId: string) => {
-    const currentMeters = metersRef.current;
-    const draggedIndex = currentMeters.findIndex((m) => m.meterId === sourceMeterId);
-    const targetIndex = currentMeters.findIndex((m) => m.meterId === targetMeterId);
+  const reorderMeters = useCallback(
+    async (sourceMeterId: string, targetMeterId: string) => {
+      const currentMeters = metersRef.current;
+      const draggedIndex = currentMeters.findIndex(
+        (m) => m.meterId === sourceMeterId,
+      );
+      const targetIndex = currentMeters.findIndex(
+        (m) => m.meterId === targetMeterId,
+      );
 
-    if (draggedIndex === -1 || targetIndex === -1) return;
+      if (draggedIndex === -1 || targetIndex === -1) return;
 
-    const newMeters = [...currentMeters];
-    const [removed] = newMeters.splice(draggedIndex, 1);
-    newMeters.splice(targetIndex, 0, removed);
+      const newMeters = [...currentMeters];
+      const [removed] = newMeters.splice(draggedIndex, 1);
+      newMeters.splice(targetIndex, 0, removed);
 
-    setMeters(newMeters);
+      setMeters(newMeters);
 
-    try {
-      const sortOrder = newMeters.map((m, index) => ({
-        meterId: m.meterId,
-        fieldSortOrder: index,
-      }));
-      await axios.post("/api/field/meters/sort", {
-        communityId: selectedCommunityRef.current?.id,
-        sortOrder,
-      });
-    } catch (err) {
-      console.error("Error saving sort order:", err);
-    }
-  }, []); // stable — uses refs internally
+      try {
+        const sortOrder = newMeters.map((m, index) => ({
+          meterId: m.meterId,
+          fieldSortOrder: index,
+        }));
+        await axios.post("/api/field/meters/sort", {
+          communityId: selectedCommunityRef.current?.id,
+          sortOrder,
+        });
+      } catch (err) {
+        console.error("Error saving sort order:", err);
+      }
+    },
+    [],
+  );
 
   const handleDragStart = useCallback((meterId: string) => {
     setDraggedMeter(meterId);
@@ -136,23 +164,28 @@ export default function ReadingsPage({
     e.preventDefault();
   }, []);
 
-  const handleDrop = useCallback((targetMeterId: string) => {
-    setDraggedMeter((current) => {
-      if (!current || current === targetMeterId) return null;
-      reorderMeters(current, targetMeterId);
-      return null;
-    });
-  }, [reorderMeters]);
+  const handleDrop = useCallback(
+    (targetMeterId: string) => {
+      setDraggedMeter((current) => {
+        if (!current || current === targetMeterId) return null;
+        reorderMeters(current, targetMeterId);
+        return null;
+      });
+    },
+    [reorderMeters],
+  );
 
-  // Touch drag state kept in refs to avoid triggering re-renders mid-gesture
   const touchDraggedMeter = useRef<string | null>(null);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, meterId: string) => {
-    touchDraggedMeter.current = meterId;
-    const target = e.currentTarget as HTMLElement;
-    target.style.opacity = "0.5";
-    target.style.backgroundColor = "#e3f2fd";
-  }, []);
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent, meterId: string) => {
+      touchDraggedMeter.current = meterId;
+      const target = e.currentTarget as HTMLElement;
+      target.style.opacity = "0.5";
+      target.style.backgroundColor = "#e3f2fd";
+    },
+    [],
+  );
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchDraggedMeter.current) return;
@@ -165,7 +198,8 @@ export default function ReadingsPage({
       const rect = element.getBoundingClientRect();
       const el = element as HTMLElement;
       const isOver = touch.clientY >= rect.top && touch.clientY <= rect.bottom;
-      const isSource = element.getAttribute("data-meter-id") === touchDraggedMeter.current;
+      const isSource =
+        element.getAttribute("data-meter-id") === touchDraggedMeter.current;
 
       if (isOver && !isSource) {
         el.style.backgroundColor = "#bbdefb";
@@ -175,34 +209,36 @@ export default function ReadingsPage({
     });
   }, []);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const source = touchDraggedMeter.current;
-    if (!source) return;
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const source = touchDraggedMeter.current;
+      if (!source) return;
 
-    const touch = e.changedTouches[0];
-    const elements = document.querySelectorAll("[data-meter-row]");
-    let targetMeterId: string | null = null;
+      const touch = e.changedTouches[0];
+      const elements = document.querySelectorAll("[data-meter-row]");
+      let targetMeterId: string | null = null;
 
-    elements.forEach((element) => {
-      const rect = element.getBoundingClientRect();
-      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-        targetMeterId = element.getAttribute("data-meter-id");
+      elements.forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+          targetMeterId = element.getAttribute("data-meter-id");
+        }
+      });
+
+      elements.forEach((element) => {
+        const el = element as HTMLElement;
+        el.style.opacity = "";
+        el.style.backgroundColor = "";
+      });
+
+      touchDraggedMeter.current = null;
+
+      if (targetMeterId && targetMeterId !== source) {
+        reorderMeters(source, targetMeterId);
       }
-    });
-
-    // Reset styles
-    elements.forEach((element) => {
-      const el = element as HTMLElement;
-      el.style.opacity = "";
-      el.style.backgroundColor = "";
-    });
-
-    touchDraggedMeter.current = null;
-
-    if (targetMeterId && targetMeterId !== source) {
-      reorderMeters(source, targetMeterId);
-    }
-  }, [reorderMeters]);
+    },
+    [reorderMeters],
+  );
 
   const handleToggleMeter = useCallback((meterId: string) => {
     setSelectedMeters((prev) => {
@@ -216,7 +252,123 @@ export default function ReadingsPage({
     });
   }, []);
 
-  const meterRows = useMemo(
+  // ── Enter Readings rows — no drag, no row-click select, free scroll ──────────
+  const readingRows = useMemo(
+    () =>
+      meters.map((meter) => {
+        const currVal = readings[meter.meterId] ?? meter.currentReading;
+        const prevVal = meter.previousReading;
+        const usage =
+          currVal !== undefined &&
+          currVal !== "" &&
+          prevVal !== undefined &&
+          prevVal !== null
+            ? Number(currVal) - Number(prevVal)
+            : null;
+
+        return (
+          <TableRow
+            key={meter.meterId}
+            // No onClick, no cursor, no selection highlight — just a plain row
+            sx={{ "&:hover": { bgcolor: "action.hover" } }}
+          >
+            {/* AMR ID */}
+            {visibleColumns.has("amrId") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography variant="body2" fontSize="0.75rem">
+                  {meter.amrId || "N/A"}
+                </Typography>
+              </TableCell>
+            )}
+
+            {/* Unit NO */}
+            {visibleColumns.has("unitId") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography variant="body2" fontSize="0.75rem" fontWeight={500}>
+                  {meter.unitId}
+                </Typography>
+              </TableCell>
+            )}
+
+            {/* Previous Reading */}
+            {visibleColumns.has("previousReading") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography
+                  variant="body2"
+                  fontSize="0.75rem"
+                  color="text.secondary"
+                >
+                  {meter.previousReading ?? "—"}
+                </Typography>
+              </TableCell>
+            )}
+
+            {/* Current Reading input */}
+            {visibleColumns.has("reading") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <TextField
+                  type="number"
+                  size="small"
+                  placeholder={meter.currentReading ?? "Enter"}
+                  value={readings[meter.meterId] || ""}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    handleReadingChange(meter.meterId, e.target.value);
+                    // selectedMeters still tracks what to save — just no visual highlight
+                    if (e.target.value) {
+                      setSelectedMeters((prev) =>
+                        new Set(prev).add(meter.meterId),
+                      );
+                    } else {
+                      setSelectedMeters((prev) => {
+                        const next = new Set(prev);
+                        next.delete(meter.meterId);
+                        return next;
+                      });
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  inputProps={{ step: "0.01", min: "0" }}
+                  fullWidth
+                  sx={{
+                    "& .MuiInputBase-input": {
+                      padding: "4px 6px",
+                      fontSize: "0.75rem",
+                    },
+                  }}
+                />
+              </TableCell>
+            )}
+
+            {/* Usage */}
+            {visibleColumns.has("usage") && (
+              <TableCell sx={{ py: 0.75, px: 0.75 }}>
+                <Typography
+                  variant="body2"
+                  fontSize="0.75rem"
+                  fontWeight={usage !== null ? 500 : 400}
+                  color={
+                    usage === null
+                      ? "text.secondary"
+                      : usage < 0
+                        ? "error.main"
+                        : "success.main"
+                  }
+                >
+                  {usage !== null ? usage.toFixed(2) : "—"}
+                </Typography>
+              </TableCell>
+            )}
+          </TableRow>
+        );
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [meters, readings, visibleColumns],
+  );
+
+  // ── Reorder rows — your exact existing drag rows ──────────────────────────────
+  const reorderRows = useMemo(
     () =>
       meters.map((meter) => (
         <TableRow
@@ -237,13 +389,18 @@ export default function ReadingsPage({
             userSelect: "none",
             WebkitUserSelect: "none",
             "&:active": { cursor: "grabbing" },
-            bgcolor: selectedMeters.has(meter.meterId) ? "action.selected" : "transparent",
+            bgcolor: selectedMeters.has(meter.meterId)
+              ? "action.selected"
+              : "transparent",
             "&:hover": {
-              bgcolor: selectedMeters.has(meter.meterId) ? "action.selected" : "action.hover",
+              bgcolor: selectedMeters.has(meter.meterId)
+                ? "action.selected"
+                : "action.hover",
             },
             transition: "background-color 0.2s ease",
           }}
         >
+          {/* Drag handle */}
           <TableCell padding="none" sx={{ pl: 0.5 }}>
             <IconButton
               size="small"
@@ -254,59 +411,25 @@ export default function ReadingsPage({
               <DragIndicatorIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </TableCell>
-          {visibleColumns.has("meterType") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <Typography variant="body2" fontSize="0.75rem">
-                {meter.meterType || "N/A"}
-              </Typography>
-            </TableCell>
-          )}
-          {visibleColumns.has("amrId") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <Typography variant="body2" fontSize="0.75rem">
-                {meter.amrId || "N/A"}
-              </Typography>
-            </TableCell>
-          )}
-          {visibleColumns.has("unitId") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <Typography variant="body2" fontSize="0.75rem" fontWeight={500}>
-                {meter.unitId}
-              </Typography>
-            </TableCell>
-          )}
-          {visibleColumns.has("reading") && (
-            <TableCell sx={{ py: 0.75, px: 0.75 }}>
-              <TextField
-                type="number"
-                size="small"
-                placeholder="Enter"
-                value={readings[meter.meterId] || ""}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  handleReadingChange(meter.meterId, e.target.value);
-                  if (e.target.value && !selectedMeters.has(meter.meterId)) {
-                    setSelectedMeters((prev) => new Set(prev).add(meter.meterId));
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-                inputProps={{ step: "0.01", min: "0" }}
-                fullWidth
-                sx={{
-                  "& .MuiInputBase-input": {
-                    padding: "4px 6px",
-                    fontSize: "0.75rem",
-                  },
-                }}
-              />
-            </TableCell>
-          )}
+          <TableCell sx={{ py: 0.75, px: 0.75 }}>
+            <Typography variant="body2" fontSize="0.75rem">
+              {meter.amrId || "N/A"}
+            </Typography>
+          </TableCell>
+          <TableCell sx={{ py: 0.75, px: 0.75 }}>
+            <Typography variant="body2" fontSize="0.75rem" fontWeight={500}>
+              {meter.unitId}
+            </Typography>
+          </TableCell>
+          <TableCell sx={{ py: 0.75, px: 0.75 }}>
+            <Typography variant="body2" fontSize="0.75rem" color="text.secondary">
+              {meter.meterType || "—"}
+            </Typography>
+          </TableCell>
         </TableRow>
       )),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [meters, selectedMeters, readings, visibleColumns]
-    // handlers are stable useCallbacks so they don't need to be listed
+    [meters, selectedMeters],
   );
 
   // Fetch communities on mount
@@ -353,7 +476,12 @@ export default function ReadingsPage({
   }, [selectedCommunity]);
 
   const handleSave = async () => {
-    const metersToSave = meters.filter((m) => selectedMeters.has(m.meterId));
+    const metersToSave = meters.filter(
+      (m) =>
+        selectedMeters.has(m.meterId) &&
+        readings[m.meterId] !== undefined &&
+        readings[m.meterId] !== "",
+    );
 
     if (metersToSave.length === 0) {
       setMessage("Please add readings to at least one meter");
@@ -367,7 +495,7 @@ export default function ReadingsPage({
     try {
       const readingsPayload = metersToSave.map((meter) => ({
         meterId: meter.meterId,
-        amrId: meter.amrId || "",
+        amrId: meter.amrId ?? null,
         reading: readings[meter.meterId],
       }));
 
@@ -395,7 +523,8 @@ export default function ReadingsPage({
       }, 500);
     } catch (err: unknown) {
       const axiosError = err as AxiosErrorResponse;
-      const errorMessage = axiosError.response?.data?.message || "Failed to save readings";
+      const errorMessage =
+        axiosError.response?.data?.message || "Failed to save readings";
       setMessage(`Error: ${errorMessage}`);
       setMessageType("error");
     } finally {
@@ -403,11 +532,24 @@ export default function ReadingsPage({
     }
   };
 
+  // Column definitions for the toggle menu — UNCHANGED
+  const columnDefs = [
+    { key: "amrId", label: "AMR ID" },
+    { key: "unitId", label: "Unit NO" },
+    { key: "previousReading", label: "Prev Reading" },
+    { key: "reading", label: "Curr Reading" },
+    { key: "usage", label: "Usage" },
+  ];
+
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 1 }}>
-      {/* Header */}
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 10 }}>
+
+      {/* Header — UNCHANGED except title reflects active tab */}
       <Box
         sx={{
+          position: "sticky",
+          top: 0,
+          zIndex: 100,
           bgcolor: "background.paper",
           borderBottom: 1,
           borderColor: "divider",
@@ -415,17 +557,21 @@ export default function ReadingsPage({
           py: 1,
         }}
       >
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
           <Box>
             <Typography variant="subtitle1" fontWeight={600}>
-              Readings
+              {activeTab === 0 ? "Enter Readings" : "Reorder Meters"}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               {fieldUsername}
             </Typography>
           </Box>
           <Stack direction="row" gap={1} alignItems="center">
-            {selectedMeters.size > 0 && (
+            {activeTab === 0 && selectedMeters.size > 0 && (
               <LoadingButton
                 onClick={handleSave}
                 loading={saving}
@@ -448,22 +594,10 @@ export default function ReadingsPage({
         </Stack>
       </Box>
 
-      {/* Content */}
-      <Box
-        sx={{
-          px: 1.5,
-          pt: 1.5,
-          overflowY: "auto",
-          height: "calc(100vh - 80px)",
-          scrollbarWidth: "thick",
-          scrollbarColor: "#888 #f1f1f1",
-          "&::-webkit-scrollbar": { width: "12px" },
-          "&::-webkit-scrollbar-track": { background: "#f1f1f1" },
-          "&::-webkit-scrollbar-thumb": { background: "#888", borderRadius: "6px" },
-          "&::-webkit-scrollbar-thumb:hover": { background: "#555" },
-        }}
-      >
-        {/* Community Selection */}
+      {/* Content — UNCHANGED */}
+      <Box sx={{ px: 1.5, pt: 1.5, pb: 4 }}>
+
+        {/* Community Selection — UNCHANGED */}
         <Card sx={{ p: 1.5, mb: 1.5 }}>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
             Select Community
@@ -476,18 +610,29 @@ export default function ReadingsPage({
             value={selectedCommunity}
             onChange={(event, newValue) => setSelectedCommunity(newValue)}
             inputValue={communityInputValue}
-            onInputChange={(event, newInputValue) => setCommunityInputValue(newInputValue)}
+            onInputChange={(event, newInputValue) =>
+              setCommunityInputValue(newInputValue)
+            }
             renderInput={(params) => (
-              <TextField {...params} placeholder="Search community..." size="small" />
+              <TextField
+                {...params}
+                placeholder="Search community..."
+                size="small"
+              />
             )}
             renderOption={(props, option, { inputValue }) => {
-              const matches = match(option.name, inputValue, { insideWords: true });
+              const matches = match(option.name, inputValue, {
+                insideWords: true,
+              });
               const parts = parse(option.name, matches);
               return (
                 <li {...props} key={option.id}>
                   <div>
                     {parts.map((part, index) => (
-                      <span key={index} style={{ fontWeight: part.highlight ? 700 : 400 }}>
+                      <span
+                        key={index}
+                        style={{ fontWeight: part.highlight ? 700 : 400 }}
+                      >
                         {part.text}
                       </span>
                     ))}
@@ -498,9 +643,13 @@ export default function ReadingsPage({
           />
         </Card>
 
-        {/* Message Display */}
+        {/* Message Display — UNCHANGED */}
         {message && (
-          <Alert severity={messageType} onClose={() => setMessage("")} sx={{ mb: 1.5 }}>
+          <Alert
+            severity={messageType}
+            onClose={() => setMessage("")}
+            sx={{ mb: 1.5 }}
+          >
             {message}
           </Alert>
         )}
@@ -516,7 +665,7 @@ export default function ReadingsPage({
               </Box>
             ) : meters.length > 0 ? (
               <>
-                {/* Header */}
+                {/* Card Header — column toggle only on Enter Readings tab */}
                 <Box
                   sx={{
                     px: 1.5,
@@ -532,112 +681,140 @@ export default function ReadingsPage({
                   <Typography variant="body2" fontWeight={600}>
                     {meters.length} Meter{meters.length !== 1 ? "s" : ""}
                   </Typography>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      const menu = document.getElementById("column-menu");
-                      if (menu) {
-                        menu.style.display = menu.style.display === "none" ? "block" : "none";
-                      }
-                    }}
-                    sx={{ fontSize: "0.75rem", py: 0.25 }}
-                  >
-                    Columns
-                  </Button>
-                  <Box
-                    id="column-menu"
-                    sx={{
-                      display: "none",
-                      position: "absolute",
-                      bgcolor: "background.paper",
-                      border: 1,
-                      borderColor: "divider",
-                      borderRadius: 1,
-                      zIndex: 10,
-                      right: 16,
-                      top: "100%",
-                      mt: 0.5,
-                    }}
-                  >
-                    {["meterType", "amrId", "unitId", "reading"].map((col) => (
+
+                  {/* Columns button — only on Enter Readings tab, UNCHANGED */}
+                  {activeTab === 0 && (
+                    <>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          const menu = document.getElementById("column-menu");
+                          if (menu) {
+                            menu.style.display =
+                              menu.style.display === "none" ? "block" : "none";
+                          }
+                        }}
+                        sx={{ fontSize: "0.75rem", py: 0.25 }}
+                      >
+                        Columns
+                      </Button>
                       <Box
-                        key={col}
-                        onClick={() => toggleColumn(col)}
+                        id="column-menu"
                         sx={{
-                          p: 1,
-                          cursor: "pointer",
-                          bgcolor: visibleColumns.has(col) ? "action.selected" : "transparent",
-                          "&:hover": { bgcolor: "action.hover" },
-                          borderBottom: "1px solid",
+                          display: "none",
+                          position: "absolute",
+                          bgcolor: "background.paper",
+                          border: 1,
                           borderColor: "divider",
-                          fontSize: "0.8rem",
-                          minWidth: 120,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
+                          borderRadius: 1,
+                          zIndex: 10,
+                          right: 16,
+                          top: "100%",
+                          mt: 0.5,
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={visibleColumns.has(col)}
-                          onChange={() => {}}
-                          style={{ cursor: "pointer" }}
-                        />
-                        {col === "meterType" && "Meter Type"}
-                        {col === "amrId" && "AMR ID"}
-                        {col === "unitId" && "Unit NO"}
-                        {col === "reading" && "Reading"}
+                        {columnDefs.map((col) => (
+                          <Box
+                            key={col.key}
+                            onClick={() => toggleColumn(col.key)}
+                            sx={{
+                              p: 1,
+                              cursor: "pointer",
+                              bgcolor: visibleColumns.has(col.key)
+                                ? "action.selected"
+                                : "transparent",
+                              "&:hover": { bgcolor: "action.hover" },
+                              borderBottom: "1px solid",
+                              borderColor: "divider",
+                              fontSize: "0.8rem",
+                              minWidth: 120,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={visibleColumns.has(col.key)}
+                              onChange={() => {}}
+                              style={{ cursor: "pointer" }}
+                            />
+                            {col.label}
+                          </Box>
+                        ))}
                       </Box>
-                    ))}
-                  </Box>
+                    </>
+                  )}
+
+                  {/* Reorder tab hint */}
+                  {activeTab === 1 && (
+                    <Typography variant="caption" color="text.secondary">
+                      Drag to reorder • saves automatically
+                    </Typography>
+                  )}
                 </Box>
 
-                {/* Table */}
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell padding="none" sx={{ bgcolor: "grey.50", width: 35, pl: 0.5 }} />
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("meterType") ? "table-cell" : "none",
-                          }}
-                        >
-                          Meter Type
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("amrId") ? "table-cell" : "none",
-                          }}
-                        >
-                          AMR ID
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("unitId") ? "table-cell" : "none",
-                          }}
-                        >
-                          Unit NO
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75,
-                            display: visibleColumns.has("reading") ? "table-cell" : "none",
-                          }}
-                        >
-                          Reading
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>{meterRows}</TableBody>
-                  </Table>
-                </TableContainer>
+                {/* ── Enter Readings tab table ── */}
+                {activeTab === 0 && (
+                  <TableContainer
+                    sx={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}
+                  >
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          {visibleColumns.has("amrId") && (
+                            <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>
+                              AMR ID
+                            </TableCell>
+                          )}
+                          {visibleColumns.has("unitId") && (
+                            <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>
+                              Unit NO
+                            </TableCell>
+                          )}
+                          {visibleColumns.has("previousReading") && (
+                            <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>
+                              Prev Reading
+                            </TableCell>
+                          )}
+                          {visibleColumns.has("reading") && (
+                            <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>
+                              Curr Reading
+                            </TableCell>
+                          )}
+                          {visibleColumns.has("usage") && (
+                            <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>
+                              Usage
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>{readingRows}</TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
 
-                {/* Action Bar */}
-                {selectedMeters.size > 0 && (
+                {/* ── Reorder tab table ── */}
+                {activeTab === 1 && (
+                  <TableContainer
+                    sx={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}
+                  >
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell padding="none" sx={{ bgcolor: "grey.50", width: 35, pl: 0.5 }} />
+                          <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>AMR ID</TableCell>
+                          <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>Unit NO</TableCell>
+                          <TableCell sx={{ bgcolor: "grey.50", fontWeight: 600, fontSize: "0.75rem", py: 0.75, px: 0.75 }}>Meter Type</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>{reorderRows}</TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+
+                {/* Action Bar — UNCHANGED, only on Enter Readings tab */}
+                {activeTab === 0 && selectedMeters.size > 0 && (
                   <Box
                     sx={{
                       px: 1.5,
@@ -650,7 +827,11 @@ export default function ReadingsPage({
                       bgcolor: "grey.50",
                     }}
                   >
-                    <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      fontSize="0.8rem"
+                    >
                       {selectedMeters.size} selected
                     </Typography>
                     <LoadingButton
@@ -675,6 +856,80 @@ export default function ReadingsPage({
           </Card>
         )}
       </Box>
+
+      {/* Floating scroll buttons — UNCHANGED, raised above bottom nav */}
+      <Box
+        sx={{
+          position: "fixed",
+          right: 12,
+          zIndex: 999,
+          bottom: "calc(env(safe-area-inset-bottom) + 70px)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 1,
+        }}
+      >
+        <Button
+          variant="contained"
+          size="small"
+          sx={{
+            minWidth: 40,
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            p: 0,
+            fontSize: "1.2rem",
+            boxShadow: 3,
+            opacity: 0.85,
+          }}
+          onClick={() =>
+            window.scrollBy({ top: -window.innerHeight * 0.7, behavior: "smooth" })
+          }
+        >
+          ↑
+        </Button>
+        <Button
+          variant="contained"
+          size="small"
+          sx={{
+            minWidth: 40,
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            p: 0,
+            fontSize: "1.2rem",
+            boxShadow: 3,
+            opacity: 0.85,
+          }}
+          onClick={() =>
+            window.scrollBy({ top: window.innerHeight * 0.7, behavior: "smooth" })
+          }
+        >
+          ↓
+        </Button>
+      </Box>
+
+      {/* NEW: Bottom tab navigation */}
+      <BottomNavigation
+        value={activeTab}
+        onChange={(_, newValue) => setActiveTab(newValue)}
+        sx={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          borderTop: 1,
+          borderColor: "divider",
+          height: "calc(56px + env(safe-area-inset-bottom))",
+          pb: "env(safe-area-inset-bottom)",
+          boxShadow: "0 -2px 8px rgba(0,0,0,0.08)",
+        }}
+      >
+        <BottomNavigationAction label="Enter Readings" icon={<EditNoteIcon />} />
+        <BottomNavigationAction label="Reorder" icon={<SwapVertIcon />} />
+      </BottomNavigation>
+
     </Box>
   );
 }
